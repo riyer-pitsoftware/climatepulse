@@ -208,3 +208,17 @@ __marimo__/
 
 # Beads issue tracker
 .beads/
+Responses-to-Initial-questions.txt
+
+# Raw data (too large for git)
+data/raw/
+!data/raw/.gitkeep
+data/processed/
+!data/processed/.gitkeep
+
+# Video production assets
+video/*.mp4
+video/*.webm
+video/*.wav
+video/*.mp3
+research/*
