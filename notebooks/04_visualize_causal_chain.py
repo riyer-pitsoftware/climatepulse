@@ -25,7 +25,7 @@ EVENTS = [
     {
         "name": "Winter Storm Uri",
         "noaa_event": "Winter Storm Uri (Feb 2021)",
-        "eia_event": "ERCO_Uri_2021",
+        "eia_event": "ERCO_URI_2021",
         "epa_event": "uri",
         "epa_counties": ["Harris", "Dallas"],
         "weather_col": "min_tmin",
@@ -50,7 +50,7 @@ EVENTS = [
         "name": "PNW Heat Dome",
         "noaa_event": "PNW Heat Dome (Jun-Jul 2021)",
         "eia_event": "BPAT_HeatDome_2021",
-        "epa_event": "heatdome",
+        "epa_event": "heat_dome",
         "epa_counties": ["Multnomah", "King"],
         "weather_col": "max_tmax",
         "weather_label": "Max Temperature (°F)",
@@ -91,7 +91,7 @@ def plot_event(event_cfg, fig_num):
                  arrowprops=dict(arrowstyle="->", color=event_cfg["weather_color"]))
 
     ax1.set_ylabel(event_cfg["weather_label"], fontsize=11)
-    ax1.set_title("① Extreme Weather", fontsize=12, loc="left", fontweight="bold")
+    ax1.set_title("(1) Extreme Weather", fontsize=12, loc="left", fontweight="bold")
     ax1.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
 
     # ── Panel 2: Grid Fuel Mix ───────────────────────────────────────────────
@@ -129,7 +129,7 @@ def plot_event(event_cfg, fig_num):
                      arrowprops=dict(arrowstyle="->", color="#D32F2F"))
 
     ax2.set_ylabel("% of Total Generation", fontsize=11)
-    ax2.set_title("② Grid Response — Fuel Mix Shift", fontsize=12, loc="left", fontweight="bold")
+    ax2.set_title("(2) Grid Response — Fuel Mix Shift", fontsize=12, loc="left", fontweight="bold")
     ax2.legend(loc="upper right", fontsize=9)
     ax2.set_ylim(0, 100)
     ax2.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
@@ -161,7 +161,7 @@ def plot_event(event_cfg, fig_num):
                      arrowprops=dict(arrowstyle="->", color="#E65100"))
 
     ax3.set_ylabel("PM2.5 AQI", fontsize=11)
-    ax3.set_title("③ Air Quality Impact", fontsize=12, loc="left", fontweight="bold")
+    ax3.set_title("(3) Air Quality Impact", fontsize=12, loc="left", fontweight="bold")
     ax3.legend(loc="upper right", fontsize=9)
     ax3.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
 
@@ -204,6 +204,86 @@ def plot_summary_comparison():
     plt.close(fig)
 
 
+def plot_lagged_aqi():
+    """Visualize the key finding: fossil shift predicts AQI with 1-day lag.
+
+    Two panels:
+    - Left: scatter of fossil_pct_change vs next-day PM2.5 AQI (Uri, strongest)
+    - Right: bar chart of correlation strength at lag 0-3 days (pooled)
+    """
+    from scipy import stats as sp_stats
+
+    unified = pd.read_csv(DATA_DIR / "unified_analysis.csv", parse_dates=["date"])
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+    fig.suptitle("ClimatePulse — The Hidden Delay: Fossil Emissions → Air Quality",
+                 fontsize=14, fontweight="bold", y=1.02)
+
+    # ── Left panel: Uri scatter with regression ──
+    uri = unified[unified["event"] == "uri_2021"].sort_values("date").dropna(
+        subset=["fossil_pct_change", "pm25_aqi"]
+    ).copy()
+    uri["pm25_next_day"] = uri["pm25_aqi"].shift(-1)
+    uri_clean = uri.dropna(subset=["pm25_next_day"])
+
+    ax1.scatter(uri_clean["fossil_pct_change"], uri_clean["pm25_next_day"],
+                color="#D32F2F", s=60, alpha=0.7, edgecolors="white", zorder=5)
+
+    # Regression line
+    slope, intercept, r_val, p_val, _ = sp_stats.linregress(
+        uri_clean["fossil_pct_change"], uri_clean["pm25_next_day"]
+    )
+    x_line = pd.Series([uri_clean["fossil_pct_change"].min(), uri_clean["fossil_pct_change"].max()])
+    ax1.plot(x_line, slope * x_line + intercept, color="#D32F2F", linewidth=2, linestyle="--")
+
+    ax1.set_xlabel("Fossil Generation Shift (pp above baseline)", fontsize=11)
+    ax1.set_ylabel("PM2.5 AQI (Next Day)", fontsize=11)
+    ax1.set_title("Winter Storm Uri — 1-Day Lag", fontsize=12, loc="left", fontweight="bold")
+    ax1.text(0.05, 0.95, f"r = +{r_val:.2f}\np = {p_val:.1e}\nR² = {r_val**2:.2f}",
+             transform=ax1.transAxes, fontsize=11, verticalalignment="top",
+             bbox=dict(boxstyle="round,pad=0.4", facecolor="white", alpha=0.8))
+
+    # ── Right panel: Pooled lag bar chart ──
+    lags = [0, 1, 2, 3]
+    pooled_r = []
+    pooled_p = []
+
+    for lag in lags:
+        all_x, all_y = [], []
+        for event in unified["event"].unique():
+            sub = unified[unified["event"] == event].sort_values("date").dropna(
+                subset=["fossil_pct_change", "pm25_aqi"]
+            ).copy()
+            if len(sub) < 5:
+                continue
+            sub["pm25_lag"] = sub["pm25_aqi"].shift(-lag)
+            sub = sub.dropna(subset=["pm25_lag"])
+            all_x.extend(sub["fossil_pct_change"].tolist())
+            all_y.extend(sub["pm25_lag"].tolist())
+        r, p = sp_stats.pearsonr(all_x, all_y)
+        pooled_r.append(r)
+        pooled_p.append(p)
+
+    colors = ["#9E9E9E" if p >= 0.05 else "#D32F2F" for p in pooled_p]
+    bars = ax2.bar(["Same\nday", "+1\nday", "+2\ndays", "+3\ndays"],
+                   pooled_r, color=colors, alpha=0.8, edgecolor="white", linewidth=1.5)
+
+    for bar, r, p in zip(bars, pooled_r, pooled_p):
+        sig = "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else "n.s."
+        ax2.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.01,
+                 f"r={r:.2f}\n{sig}", ha="center", fontsize=10, fontweight="bold")
+
+    ax2.set_ylabel("Correlation (Pearson r)", fontsize=11)
+    ax2.set_title("Pooled — Correlation Strengthens with Lag", fontsize=12, loc="left", fontweight="bold")
+    ax2.set_ylim(0, 0.5)
+    ax2.axhline(y=0, color="black", linewidth=0.5)
+
+    plt.tight_layout()
+    out_path = CHART_DIR / "lagged_aqi_finding.png"
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    print(f"Saved: {out_path}")
+    plt.close(fig)
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     print("Generating causal chain visualizations...\n")
@@ -214,5 +294,8 @@ if __name__ == "__main__":
 
     print(f"\n[4/4] Summary comparison")
     plot_summary_comparison()
+
+    print(f"\n[5/5] Lagged AQI finding")
+    plot_lagged_aqi()
 
     print(f"\nAll charts saved to: {CHART_DIR}")
