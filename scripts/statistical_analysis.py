@@ -4,7 +4,7 @@
 Tests:
 1. Correlation: weather severity ↔ fossil shift ↔ AQI
 2. Granger causality: does fossil shift predict AQI changes?
-3. Difference-in-differences: event vs baseline fossil/renewable share
+3. One-sample mean-shift test: event vs baseline fossil/renewable share
 4. Per-event effect sizes with confidence intervals
 
 Outputs:
@@ -19,6 +19,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from scipy import stats
+from statsmodels.stats.multitest import multipletests
 from statsmodels.tsa.stattools import grangercausalitytests
 
 DATA_DIR = Path(__file__).parent.parent / "data" / "processed"
@@ -83,6 +84,10 @@ def lagged_correlation(df):
 
     results = {}
 
+    # Collect all raw p-values and their keys for BH correction
+    all_pvals = []
+    all_pval_keys = []  # (section_key, lag_key) tuples
+
     # Per-event lagged analysis
     for event in sorted(df["event"].unique()):
         sub = df[df["event"] == event].sort_values("date").dropna(
@@ -91,7 +96,6 @@ def lagged_correlation(df):
         if len(sub) < 5:
             continue
 
-        print(f"\n  {event} (n={len(sub)}):")
         event_results = {}
 
         for lag in range(0, 4):
@@ -102,20 +106,18 @@ def lagged_correlation(df):
                 continue
 
             r, p = stats.pearsonr(sub_lag["fossil_pct_change"], sub_lag["pm25_lag"])
-            sig = "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else ""
-            label = "same-day" if lag == 0 else f"lag-{lag}d"
-            print(f"    {label}: r={r:+.3f}  p={p:.4f} {sig}")
 
             event_results[f"lag_{lag}"] = {
                 "pearson_r": round(r, 3),
-                "p_value": round(p, 4),
+                "p_value_raw": round(p, 4),
                 "n": len(sub_lag),
             }
+            all_pvals.append(p)
+            all_pval_keys.append((event, f"lag_{lag}"))
 
         results[event] = event_results
 
     # Pooled lagged analysis
-    print("\n  POOLED (all events):")
     pooled_results = {}
     for lag in range(0, 4):
         all_x, all_y = [], []
@@ -133,17 +135,52 @@ def lagged_correlation(df):
 
         if len(all_x) >= 5:
             r, p = stats.pearsonr(all_x, all_y)
-            sig = "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else ""
-            label = "same-day" if lag == 0 else f"lag-{lag}d"
-            print(f"    {label}: r={r:+.3f}  p={p:.4f} n={len(all_x)} {sig}")
 
             pooled_results[f"lag_{lag}"] = {
                 "pearson_r": round(r, 3),
-                "p_value": round(p, 4),
+                "p_value_raw": round(p, 4),
                 "n": len(all_x),
             }
+            all_pvals.append(p)
+            all_pval_keys.append(("pooled", f"lag_{lag}"))
 
     results["pooled"] = pooled_results
+
+    # Apply Benjamini-Hochberg (FDR) correction across all lagged tests
+    if all_pvals:
+        reject, pvals_corrected, _, _ = multipletests(all_pvals, method="fdr_bh")
+        for idx, (section_key, lag_key) in enumerate(all_pval_keys):
+            results[section_key][lag_key]["p_value_bh"] = round(float(pvals_corrected[idx]), 4)
+
+    # Print results with both raw and corrected p-values
+    print("\n  NOTE: p-values corrected for multiple comparisons using")
+    print("        Benjamini-Hochberg (FDR) procedure across all lag tests.\n")
+    for event in sorted(df["event"].unique()):
+        if event not in results or not results[event]:
+            continue
+        sub = df[df["event"] == event].sort_values("date").dropna(
+            subset=["fossil_pct_change", "pm25_aqi"]
+        )
+        print(f"  {event} (n={len(sub)}):")
+        for lag_key in sorted(results[event]):
+            entry = results[event][lag_key]
+            p_raw = entry["p_value_raw"]
+            p_bh = entry.get("p_value_bh", p_raw)
+            sig = "***" if p_bh < 0.001 else "**" if p_bh < 0.01 else "*" if p_bh < 0.05 else ""
+            lag_num = int(lag_key.split("_")[1])
+            label = "same-day" if lag_num == 0 else f"lag-{lag_num}d"
+            print(f"    {label}: r={entry['pearson_r']:+.3f}  p_raw={p_raw:.4f}  p_bh={p_bh:.4f} {sig}")
+        print()
+
+    print("  POOLED (all events):")
+    for lag_key in sorted(pooled_results):
+        entry = pooled_results[lag_key]
+        p_raw = entry["p_value_raw"]
+        p_bh = entry.get("p_value_bh", p_raw)
+        sig = "***" if p_bh < 0.001 else "**" if p_bh < 0.01 else "*" if p_bh < 0.05 else ""
+        lag_num = int(lag_key.split("_")[1])
+        label = "same-day" if lag_num == 0 else f"lag-{lag_num}d"
+        print(f"    {label}: r={entry['pearson_r']:+.3f}  p_raw={p_raw:.4f}  p_bh={p_bh:.4f} n={entry['n']} {sig}")
 
     # Uri regression details (strongest signal)
     uri = df[df["event"] == "uri_2021"].sort_values("date").dropna(
@@ -184,7 +221,7 @@ def granger_causality(df):
             print(f"\n  {event}: too few observations ({len(sub)}), skipping")
             continue
 
-        series = sub[["fossil_pct_change", "pm25_aqi"]].values
+        series = sub[["pm25_aqi", "fossil_pct_change"]].values
         max_lag = min(3, len(sub) // 4)
 
         print(f"\n  {event} (n={len(sub)}, max_lag={max_lag}):")
@@ -209,14 +246,15 @@ def granger_causality(df):
     return results
 
 
-def difference_in_differences(df):
+def one_sample_mean_shift(df):
     """Compare event-period fossil/renewable share against baseline.
 
     The baseline values are already in the dataset (baseline_fossil_pct, etc).
-    We compute the average shift and test if it's significantly different from 0.
+    We compute the average shift and test if it's significantly different from 0
+    using a one-sample t-test (no control group or parallel-trends assumption).
     """
     print("\n" + "=" * 60)
-    print("3. DIFFERENCE-IN-DIFFERENCES (event vs baseline)")
+    print("3. ONE-SAMPLE MEAN-SHIFT TEST (event vs baseline)")
     print("=" * 60)
 
     results = {}
@@ -324,7 +362,7 @@ def main():
     all_results["correlation"] = correlation_analysis(df)
     all_results["lagged_correlation"] = lagged_correlation(df)
     all_results["granger_causality"] = granger_causality(df)
-    all_results["difference_in_differences"] = difference_in_differences(df)
+    all_results["event_mean_shift"] = one_sample_mean_shift(df)
     all_results["pooled"] = pooled_analysis(df)
 
     # --- Summary verdict ---
