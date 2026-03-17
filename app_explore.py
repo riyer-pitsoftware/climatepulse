@@ -1,6 +1,6 @@
 """ClimatePulse — Thesis Explorer
 
-Narrative-driven visualization: Extreme Weather → Grid Fossil Shift → AQI Degradation
+Exploratory visualization: Extreme Weather → Grid Fossil Shift → AQI Association
 """
 
 import streamlit as st
@@ -58,12 +58,13 @@ df = load_data()
 st.markdown("# ClimatePulse")
 st.markdown(
     "### When extreme weather hits, power grids burn more fossil fuel — "
-    "and the air we breathe gets worse."
+    "and the air we breathe may get worse."
 )
 st.markdown(
     "We tracked three major US weather disasters and measured what happened to the power grid "
-    "and local air quality during each one. The pattern is consistent: "
-    "**extreme weather** → **more fossil fuel burned** → **worse air quality**."
+    "and local air quality during each one. The exploratory evidence suggests a pattern: "
+    "**extreme weather** → **more fossil fuel burned** → **associated AQI changes**. "
+    "The strength of evidence varies by event and by link in the chain — see findings below."
 )
 st.divider()
 
@@ -257,7 +258,7 @@ def render_event(event_key, data):
 
 # --- Tabs ---
 tab_causal, tab_threshold = st.tabs([
-    "Causal Chain — Event Analysis",
+    "Event Analysis — Exploratory Evidence",
     "Alternate Hypothesis — Thermal Threshold Effects",
 ])
 
@@ -268,10 +269,11 @@ with tab_causal:
         render_event(event_key, event_data)
 
     # --- Cross-event comparison ---
-    st.markdown("## The Pattern")
+    st.markdown("## Observed Patterns")
     st.markdown(
-        "This isn't a one-off. Across three different weather disasters in three different grid regions, "
-        "the same pattern emerges: **extreme weather forces the grid toward fossil fuels**."
+        "Across three weather disasters in three grid regions, exploratory evidence suggests "
+        "extreme weather is associated with increased fossil fuel generation. However, the "
+        "strength and consistency of the air quality link varies across events."
     )
 
     comparison_data = []
@@ -301,48 +303,55 @@ with tab_causal:
     )
 
     # --- Statistical Evidence ---
-    st.markdown("## The Evidence")
+    st.markdown("## Exploratory Evidence")
 
     st.markdown(
         "We ran correlation, difference-in-differences, lagged correlation, and Granger causality tests "
-        "across all three events."
+        "across all three events. The evidence strength varies by link in the proposed chain."
     )
 
     col_f1, col_f2, col_f3 = st.columns(3)
 
     with col_f1:
-        st.markdown("#### Finding 1")
+        st.markdown("#### Finding 1 — SUPPORTED")
         st.success(
-            "**Extreme weather → more fossil fuel burned**\n\n"
+            "**Extreme weather is associated with more fossil fuel generation**\n\n"
             "Pooled across all events: fossil generation was **+4.0 percentage points** "
-            "above baseline (p=0.002). The PNW Heat Dome alone showed a massive "
-            "+6.2pp shift (p<0.0001, Cohen's d = 3.31)."
+            "above baseline (p=0.002). The PNW Heat Dome alone showed a "
+            "+6.2pp shift (p<0.0001, Cohen's d = 3.31). This link is the strongest "
+            "in the chain and is supported across all three events."
         )
 
     with col_f2:
-        st.markdown("#### Finding 2")
-        st.success(
-            "**More fossil fuel → worse air quality (1-day lag)**\n\n"
+        st.markdown("#### Finding 2 — TENTATIVE")
+        st.warning(
+            "**Fossil generation associated with next-day AQI (case-study finding)**\n\n"
             "The same-day correlation is weak (r=0.18, p=0.15), but with a **1-day lag** "
-            "the signal emerges: pooled r=+0.38 (p=0.002). Winter Storm Uri shows "
-            "r=+0.70 (p=0.0001). Each 1pp fossil increase predicts +0.5 PM2.5 AQI the next day."
+            "the pooled association strengthens: r=+0.38 (p=0.002). Winter Storm Uri shows "
+            "the strongest case-study signal at r=+0.70 (p=0.0001). "
+            "However, this association is not consistent across all events and does not "
+            "establish causation."
         )
 
     with col_f3:
-        st.markdown("#### Finding 3")
+        st.markdown("#### Finding 3 — NOT ESTABLISHED")
         st.info(
-            "**The Hidden Delay**\n\n"
-            "Emissions don't degrade air quality instantly — they take ~24 hours to disperse "
-            "and build up. This temporal delay is why previous analyses missed the connection. "
-            "The lag is consistent across events."
+            "**Cross-event causal chain not confirmed**\n\n"
+            "While each event shows some association between grid changes and AQI, "
+            "we cannot confirm a consistent causal chain across all three events. "
+            "Confounding factors (wildfire smoke, meteorological dispersion patterns, "
+            "spatial mismatches in data) limit causal inference. "
+            "The ~24-hour lag pattern is suggestive but not definitive."
         )
 
     # --- The Hidden Delay: Lagged AQI Visualization ---
-    st.markdown("## The Hidden Delay — Fossil Emissions Take 24 Hours to Degrade Air Quality")
+    st.markdown("## Lagged Association — Fossil Generation and Next-Day AQI")
     st.markdown(
-        "Why did previous analyses miss the fossil-to-air-quality link? Because they looked at "
-        "**same-day** correlations. When we shift the air quality data forward by one day — "
-        "testing whether today's fossil spike predicts **tomorrow's** PM2.5 — the signal appears."
+        "Same-day correlations between fossil generation and air quality are weak. "
+        "When we shift the air quality data forward by one day — testing whether today's "
+        "fossil spike is associated with **tomorrow's** PM2.5 — a stronger association appears. "
+        "This is suggestive of an emissions-to-AQI lag, but other explanations "
+        "(e.g., weather persistence, confounding pollutant sources) cannot be ruled out."
     )
 
     import numpy as np
@@ -354,7 +363,7 @@ with tab_causal:
         st.markdown("#### Winter Storm Uri — 1-Day Lag")
         st.markdown(
             "Each point shows one day's fossil shift (x) against the **next day's** "
-            "PM2.5 air quality index (y). The trend is unmistakable."
+            "PM2.5 air quality index (y). Uri shows the strongest association of the three events."
         )
         uri = df[df["event"] == "uri_2021"].sort_values("date").dropna(
             subset=["fossil_pct_change", "pm25_aqi"]
@@ -404,11 +413,11 @@ with tab_causal:
         )
 
     with lag_col2:
-        st.markdown("#### Pooled — Correlation Strengthens with Lag")
+        st.markdown("#### Pooled — Association Strengthens with Lag")
         st.markdown(
-            "The same-day correlation is noise. But add a 1-day delay and the signal "
-            "jumps to statistically significant — consistent with the time it takes "
-            "for emissions to disperse and affect air quality monitors."
+            "The same-day correlation is weak. Adding a 1-day delay strengthens the "
+            "association to statistical significance — consistent with, but not proof of, "
+            "an emissions-to-AQI mechanism."
         )
 
         # Compute pooled lagged correlations
@@ -486,8 +495,8 @@ with tab_causal:
     # --- Cross-event summary comparison ---
     st.markdown("## Side-by-Side — Three Events Compared")
     st.markdown(
-        "Different regions, different seasons, different grid configurations — "
-        "but the same underlying pattern."
+        "Different regions, different seasons, different grid configurations. "
+        "The fossil generation shift is consistent; the air quality association varies by event."
     )
 
     summary_metrics = []
@@ -570,6 +579,36 @@ with tab_causal:
     # --- Raw data tucked away ---
     with st.expander("Raw data (71 rows)"):
         st.dataframe(df, use_container_width=True, hide_index=True)
+
+    # --- Limitations and Methodology Notes ---
+    st.divider()
+    st.markdown("## Limitations & Methodology Notes")
+
+    st.warning(
+        "**Spatial unit mismatch.** This analysis joins three datasets with incompatible "
+        "geographic footprints: station-level NOAA weather observations, county-level EPA "
+        "air quality monitors, and balancing-authority-wide EIA grid generation data. "
+        "These are matched on event and date, but a county's AQI monitoring station may not "
+        "represent the same geographic area as the grid balancing authority's generation fleet. "
+        "This mismatch introduces ecological inference risk — aggregate patterns may not "
+        "reflect local-level relationships."
+    )
+
+    st.warning(
+        "**PNW Heat Dome wildfire confounding.** The elevated AQI observed during the "
+        "June–July 2021 Pacific Northwest heat dome is likely confounded by concurrent "
+        "wildfire smoke. The extreme heat triggered wildfires across Oregon and Washington, "
+        "and our pipeline does not separate wildfire-sourced particulate matter from "
+        "power-sector emissions. The AQI signal for this event should not be attributed "
+        "solely to changes in grid fossil fuel generation."
+    )
+
+    st.info(
+        "**Interpretation guidance.** This is an exploratory analysis of three case studies. "
+        "The sample size (three events, 71 total days) is too small to establish general "
+        "causal claims. Associations observed here generate hypotheses for further "
+        "investigation with larger datasets and causal identification strategies."
+    )
 
 with tab_threshold:
     import numpy as np
