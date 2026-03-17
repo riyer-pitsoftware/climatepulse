@@ -317,23 +317,29 @@ def main():
     pw_p = all_results["breakpoint_analysis"].get("piecewise_model", {}).get("f_pval", 1.0)
     kw_p = all_results["bin_analysis"].get("kruskal_wallis", {}).get("p_value", 1.0)
 
-    status = "SUPPORTED" if min(quad_p, pw_p, kw_p) < 0.05 else "NOT SUPPORTED"
+    sig_count = sum(1 for p in [quad_p, pw_p, kw_p] if p < 0.05)
+    if sig_count >= 2:
+        status = "SUPPORTED"
+    elif sig_count == 1:
+        status = "MIXED"
+    else:
+        status = "NOT_SUPPORTED"
     all_results["verdict"] = status
+    all_results["tests_passing"] = sig_count
 
     print(f"""
   HYPOTHESIS: Temperature Threshold Effects
-  STATUS: {status}
+  STATUS: {status} ({sig_count}/3 tests significant at p<0.05)
 
   Key p-values:
     Quadratic non-linearity:     p = {quad_p:.4f} {'*' if quad_p < 0.05 else ''}
     Piecewise breakpoint F-test: p = {pw_p:.4f} {'*' if pw_p < 0.05 else ''}
     Kruskal-Wallis (bin groups): p = {kw_p:.4f} {'*' if kw_p < 0.05 else ''}
 
-  This analysis strengthens the primary thesis by showing that the
-  extreme-weather-to-fossil-shift link is not merely linear — the grid's
-  fossil dependence ACCELERATES under severe thermal stress, implying
-  that climate change will disproportionately degrade air quality as
-  extreme events intensify.
+  The bin analysis supports a threshold effect (extreme temps correlate
+  with higher fossil dependence), but the parametric tests for non-linearity
+  (piecewise breakpoint, quadratic term) do not reach significance. The
+  evidence for a non-linear threshold is suggestive but inconclusive.
 """)
 
     # Save results

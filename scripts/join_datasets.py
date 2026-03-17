@@ -140,6 +140,28 @@ def main():
     # Sort by event + date
     merged = merged.sort_values(["event", "date"]).reset_index(drop=True)
 
+    # ── Data quality: flag rows with suspiciously low generation ──
+    # For each event, compute median total_generation_mwh.
+    # Flag rows below 50% of their event median as suspect partial-day data.
+    event_medians = merged.groupby("event")["total_generation_mwh"].median()
+    merged["data_quality"] = "ok"
+    for evt, median_gen in event_medians.items():
+        mask = (merged["event"] == evt) & (
+            merged["total_generation_mwh"] < 0.5 * median_gen
+        )
+        merged.loc[mask, "data_quality"] = "suspect_low_generation"
+
+    suspect = merged[merged["data_quality"] == "suspect_low_generation"]
+    if len(suspect) > 0:
+        print(f"\n⚠  Flagged {len(suspect)} rows as suspect_low_generation:")
+        for _, row in suspect.iterrows():
+            evt_median = event_medians[row["event"]]
+            print(
+                f"   {row['event']} {row['date'].date()}: "
+                f"total_generation_mwh={row['total_generation_mwh']:.0f} "
+                f"(event median={evt_median:.0f})"
+            )
+
     # Save
     out_path = DATA_DIR / "unified_analysis.csv"
     merged.to_csv(out_path, index=False)

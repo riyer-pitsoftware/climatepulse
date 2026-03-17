@@ -11,8 +11,9 @@ import pathlib
 import sys
 
 # ── paths ──────────────────────────────────────────────────────────────
-RAW = pathlib.Path("/Users/riyer/code/zervehack/data/raw/eia")
-OUT = pathlib.Path("/Users/riyer/code/zervehack/data/processed")
+_ROOT = pathlib.Path(__file__).resolve().parent.parent
+RAW = _ROOT / "data" / "raw" / "eia"
+OUT = _ROOT / "data" / "processed"
 OUT.mkdir(parents=True, exist_ok=True)
 
 # ── event definitions ──────────────────────────────────────────────────

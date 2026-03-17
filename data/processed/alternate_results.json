@@ -1,0 +1,63 @@
+{
+  "hypothesis": "Temperature Threshold Effects on Fossil Dependence",
+  "description": "Non-linear relationship between temperature extremes and grid fossil dependence \u2014 fossil reliance accelerates beyond a thermal stress threshold.",
+  "breakpoint_analysis": {
+    "linear_model": {
+      "slope": 0.3999,
+      "intercept": -3.2374,
+      "r_squared": 0.2528,
+      "p_value": 8e-06,
+      "rss": 5650.63
+    },
+    "piecewise_model": {
+      "breakpoint_deviation_f": 27.9,
+      "breakpoint_means": "temps below 37F or above 93F",
+      "slope_below": 0.5836,
+      "slope_above": 0.5548,
+      "slope_ratio": 0.95,
+      "r_squared": 0.2839,
+      "f_stat": 2.95,
+      "f_pval": 0.0904,
+      "r2_improvement": 0.0311
+    }
+  },
+  "quadratic_test": {
+    "quadratic_coeff": -0.009987,
+    "quadratic_se": 0.006459,
+    "quadratic_t": -1.546,
+    "quadratic_p": 0.1267,
+    "linear_r2": 0.2528,
+    "quadratic_r2": 0.2782,
+    "f_stat": 2.391,
+    "f_pval": 0.1267,
+    "r2_improvement": 0.0254
+  },
+  "bin_analysis": {
+    "moderate": {
+      "n": 24,
+      "mean_fossil_shift": -1.5,
+      "se": 1.86
+    },
+    "elevated": {
+      "n": 23,
+      "mean_fossil_shift": 2.81,
+      "se": 1.98
+    },
+    "extreme": {
+      "n": 24,
+      "mean_fossil_shift": 10.74,
+      "se": 1.81
+    },
+    "kruskal_wallis": {
+      "h_stat": 14.003,
+      "p_value": 0.0009
+    },
+    "moderate_vs_extreme": {
+      "u_stat": 111.0,
+      "p_value": 0.0001,
+      "effect_diff_pp": 12.24
+    }
+  },
+  "verdict": "MIXED",
+  "tests_passing": 1
+}

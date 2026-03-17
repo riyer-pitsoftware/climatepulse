@@ -11,8 +11,9 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-RAW = Path("/Users/riyer/code/zervehack/data/raw/epa")
-OUT = Path("/Users/riyer/code/zervehack/data/processed/epa_air_quality.csv")
+_ROOT = Path(__file__).resolve().parent.parent
+RAW = _ROOT / "data" / "raw" / "epa"
+OUT = _ROOT / "data" / "processed" / "epa_air_quality.csv"
 
 PM25_FILES = [
     RAW / "daily_88101_2021" / "daily_88101_2021.csv",
