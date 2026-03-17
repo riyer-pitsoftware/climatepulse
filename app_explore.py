@@ -535,7 +535,7 @@ with tab_causal:
                 alt.Chart(chart_data)
                 .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4, color=color, opacity=0.8)
                 .encode(
-                    x=alt.X("Event:N", sort=list(EVENT_META.values().__iter__()),
+                    x=alt.X("Event:N", sort=[m["label"] for m in EVENT_META.values()],
                              axis=alt.Axis(labelAngle=-20)),
                     y=alt.Y(f"{metric}:Q", title=f"{metric} ({unit})"),
                     tooltip=[
