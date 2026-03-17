@@ -5,11 +5,13 @@ Produces unified_analysis.csv — the core analytical artifact for the
 ClimatePulse thesis: Extreme Weather → Grid Fossil Shift → AQI Degradation.
 """
 
+import numpy as np
 import pandas as pd
 import sys
 from pathlib import Path
 
 DATA_DIR = Path(__file__).parent.parent / "data" / "processed"
+RAW_DIR = Path(__file__).parent.parent / "data" / "raw"
 
 # Canonical event mapping across all 3 datasets
 EVENT_MAP_NOAA = {
@@ -42,9 +44,27 @@ def load_eia():
 
     Compute fossil_pct and renewable_pct per day.
     Also compute baseline averages so we can show the shift.
+
+    Timezone note (cp-42z):
+    EIA API hourly data uses *local prevailing time* of each balancing
+    authority (ERCO → Central, BPAT → Pacific, PJM → Eastern).  The raw
+    files contain hour labels like "2021-02-01T00" with no explicit UTC
+    offset.  We treat them as local time and truncate to calendar dates in
+    that same local time, which aligns with the NOAA and EPA daily
+    boundaries that also use local calendar dates.
+
+    Risk: if EIA ever switches to UTC delivery, our daily aggregation
+    could shift by one calendar day for late-night hours.  We verified
+    against raw files (e.g. eia_erco_uri_2021.csv "period" column starts
+    at T00 on the first event day and ends at T23, consistent with local
+    midnight-to-midnight).  NOAA "Date Local" and EPA "Date Local" fields
+    are explicitly local-time, so the join on calendar date is consistent
+    across all three datasets.
     """
     df = pd.read_csv(DATA_DIR / "eia_grid_response.csv")
     df["event"] = df["event"].map(EVENT_MAP_EIA)
+    # Parse as naive datetime — EIA hours are in local prevailing time
+    # of the balancing authority (see docstring for timezone rationale).
     df["datetime"] = pd.to_datetime(df["datetime"])
     df["date"] = df["datetime"].dt.date
 
@@ -99,17 +119,95 @@ def load_eia():
     return event[cols]
 
 
+def _build_county_monitor_weights():
+    """Count distinct monitoring sites per county from raw EPA AQS data.
+
+    The raw EPA daily files contain one row per site-day-POC.  We count
+    unique (State Code, County Code, Site Num) tuples to estimate each
+    county's monitoring density.  Counties with more monitors contribute
+    proportionally more to the regional daily AQI average.
+
+    Limitation (cp-3xe): this counts *sites that ever reported* in the
+    annual file, not sites reporting on a specific day.  A site that was
+    offline for part of the event still contributes to its county's
+    weight.  A per-day site count would be more precise but would require
+    joining raw site-level data back through the full pipeline.
+    """
+    site_frames = []
+    for pattern in ["daily_88101_*/*.csv", "daily_88101_*.csv",
+                    "daily_44201_*.csv"]:
+        for fp in sorted((RAW_DIR / "epa").glob(pattern)):
+            try:
+                raw = pd.read_csv(fp, usecols=["State Code", "County Code", "Site Num"],
+                                  dtype=str)
+                site_frames.append(raw)
+            except Exception:
+                pass
+
+    if not site_frames:
+        return None
+
+    sites = pd.concat(site_frames, ignore_index=True)
+    sites = sites.drop_duplicates()
+    weights = (
+        sites.groupby(["State Code", "County Code"])
+        .size()
+        .reset_index(name="monitor_count")
+    )
+    # Normalise column names to match processed EPA file
+    weights.rename(columns={"State Code": "state_code",
+                            "County Code": "county_code"}, inplace=True)
+    return weights
+
+
 def load_epa():
-    """Load EPA air quality — average across counties per event+date."""
+    """Load EPA air quality — monitor-count weighted average across counties.
+
+    cp-3xe: Instead of a simple unweighted mean, each county's AQI is
+    weighted by the number of distinct monitoring sites in that county
+    (derived from raw AQS annual files).  This gives higher weight to
+    counties with denser monitoring networks, better representing
+    population-level exposure.
+    """
     df = pd.read_csv(DATA_DIR / "epa_air_quality.csv")
     df["event"] = df["event"].map(EVENT_MAP_EPA)
     df["date"] = pd.to_datetime(df["date"])
+    # Ensure join keys are strings for merge with raw-derived weights
+    df["state_code"] = df["state_code"].astype(str).str.zfill(2)
+    df["county_code"] = df["county_code"].astype(str).str.zfill(3)
 
-    # Average across counties for a regional daily value
+    weights = _build_county_monitor_weights()
+    aqi_cols = ["pm25_mean", "ozone_mean", "pm25_aqi", "ozone_aqi"]
+
+    if weights is not None:
+        weights["state_code"] = weights["state_code"].astype(str).str.zfill(2)
+        weights["county_code"] = weights["county_code"].astype(str).str.zfill(3)
+        df = df.merge(weights, on=["state_code", "county_code"], how="left")
+        # Counties with no raw match get weight 1 (unweighted fallback)
+        df["monitor_count"] = df["monitor_count"].fillna(1).astype(int)
+        print(f"  EPA weighting: {df['monitor_count'].gt(1).sum()}/{len(df)} "
+              f"county-rows have >1 monitor (max={df['monitor_count'].max()})")
+    else:
+        # Fallback: equal weight per county (no raw site data found)
+        df["monitor_count"] = 1
+        print("  EPA weighting: raw site data unavailable, using equal county weights")
+
+    # Weighted average across counties per event+date
+    def _weighted_mean(group):
+        w = group["monitor_count"].values
+        result = {}
+        for col in aqi_cols:
+            vals = group[col].values
+            mask = ~np.isnan(vals)
+            if mask.any():
+                result[col] = round(np.average(vals[mask], weights=w[mask]), 4)
+            else:
+                result[col] = np.nan
+        return pd.Series(result)
+
     daily = (
-        df.groupby(["event", "date"])[["pm25_mean", "ozone_mean", "pm25_aqi", "ozone_aqi"]]
-        .mean()
-        .round(4)
+        df.groupby(["event", "date"])
+        .apply(_weighted_mean, include_groups=False)
         .reset_index()
     )
     return daily
