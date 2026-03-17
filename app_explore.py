@@ -306,7 +306,7 @@ with tab_causal:
     st.markdown("## Exploratory Evidence")
 
     st.markdown(
-        "We ran correlation, difference-in-differences, lagged correlation, and Granger causality tests "
+        "We ran correlation, mean-shift, lagged correlation, and Granger causality tests "
         "across all three events. The evidence strength varies by link in the proposed chain."
     )
 
