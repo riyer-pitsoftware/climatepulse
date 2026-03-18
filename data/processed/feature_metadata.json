@@ -130,8 +130,8 @@
     }
   },
   "row_accounting": {
-    "input_rows": 69,
-    "output_rows": 59,
+    "input_rows": 101,
+    "output_rows": 91,
     "drops": {
       "total_dropped": 10
     }

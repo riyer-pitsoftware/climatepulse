@@ -95,6 +95,12 @@ def main():
     summary = []
 
     for label, filename, respondent, start, end in EVENTS:
+        outpath = OUT_DIR / filename
+        if outpath.exists():
+            print(f"\n  SKIP {label} (already exists: {filename})")
+            summary.append((label, -1, []))
+            continue
+
         print(f"\n{'='*60}")
         print(f"  {label}  ({respondent}  {start} -> {end})")
         print(f"{'='*60}")
@@ -106,7 +112,6 @@ def main():
             summary.append((label, 0, []))
             continue
 
-        outpath = OUT_DIR / filename
         df.to_csv(outpath, index=False)
         print(f"  Saved {len(df)} rows -> {outpath}")
 

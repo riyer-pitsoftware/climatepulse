@@ -188,11 +188,17 @@ def main() -> None:
 
     for event in EVENTS:
         name = event["name"]
+        out_path = OUT_DIR / f"{name}.csv"
+
+        if out_path.exists():
+            print(f"\n=== {name} === SKIP (already exists: {out_path.name})")
+            summary.append((name, -1))
+            continue
+
         print(f"\n=== {name} ===")
         print(f"  {event['locationid']}  {event['startdate']} -> {event['enddate']}")
 
         rows = fetch_event(event)
-        out_path = OUT_DIR / f"{name}.csv"
         save_csv(rows, out_path)
         summary.append((name, len(rows)))
         print(f"  -> {len(rows)} records saved to {out_path.name}")
