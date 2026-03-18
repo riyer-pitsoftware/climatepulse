@@ -223,3 +223,4 @@ video/*.wav
 video/*.mp3
 research/*
 agents/*
+docs/feature_engineering_plan.md

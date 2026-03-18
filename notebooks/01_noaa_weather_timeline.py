@@ -15,6 +15,9 @@ OUT_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "processed"
 OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 # ── event manifest ───────────────────────────────────────────────────────
+# Each entry maps a display name to its raw CSV files.
+# Baseline entries (cp-9v9) use the same event label so they join correctly
+# downstream; is_baseline flag distinguishes them from event-period data.
 EVENTS = {
     "Winter Storm Uri (Feb 2021)": [
         "uri_houston_tx.csv",
@@ -28,6 +31,32 @@ EVENTS = {
         "heatdome_multnomah_or.csv",
         "heatdome_king_wa.csv",
     ],
+}
+
+# cp-9v9: Same-year pre-event baseline periods (2 weeks before each event).
+# These map to the SAME parent event so the join script can pair them.
+BASELINE_EVENTS = {
+    "Winter Storm Uri Baseline (Jan 2021)": {
+        "files": [
+            "uri_baseline_houston_tx.csv",
+            "uri_baseline_dallas_tx.csv",
+        ],
+        "parent_event": "Winter Storm Uri (Feb 2021)",
+    },
+    "PNW Heat Dome Baseline (Jun 2021)": {
+        "files": [
+            "heatdome_baseline_multnomah_or.csv",
+            "heatdome_baseline_king_wa.csv",
+        ],
+        "parent_event": "PNW Heat Dome (Jun-Jul 2021)",
+    },
+    "Winter Storm Elliott Baseline (Dec 2022)": {
+        "files": [
+            "elliott_baseline_allegheny_pa.csv",
+            "elliott_baseline_hamilton_oh.csv",
+        ],
+        "parent_event": "Winter Storm Elliott (Dec 2022)",
+    },
 }
 
 DATATYPES = ["TMIN", "TMAX", "PRCP", "SNOW"]
@@ -92,6 +121,7 @@ def main():
     all_wide = []
     all_daily = []
 
+    # Process event-period data
     for event_name, files in EVENTS.items():
         print(f"\n{'='*60}")
         print(f"Loading: {event_name}")
@@ -105,6 +135,34 @@ def main():
         all_wide.append(wide)
 
         daily = daily_aggregates(wide)
+        daily["is_baseline"] = 0
+        print(f"  unique dates: {len(daily):,}")
+        all_daily.append(daily)
+
+    # cp-9v9: Process baseline-period data
+    # Baseline rows get the PARENT event name so they join with the same
+    # event in the downstream pipeline, plus is_baseline=1 to distinguish.
+    for bl_name, bl_cfg in BASELINE_EVENTS.items():
+        files = bl_cfg["files"]
+        parent = bl_cfg["parent_event"]
+        print(f"\n{'='*60}")
+        print(f"Loading baseline: {bl_name}")
+        print(f"  files: {files}  (parent event: {parent})")
+
+        try:
+            long = load_event(parent, files)
+        except FileNotFoundError:
+            print(f"  SKIP: baseline files not yet pulled — run pull_noaa_sample.py first")
+            continue
+
+        print(f"  rows loaded: {len(long):,}")
+
+        wide = pivot_to_wide(long)
+        print(f"  station-days after pivot: {len(wide):,}")
+        all_wide.append(wide)
+
+        daily = daily_aggregates(wide)
+        daily["is_baseline"] = 1
         print(f"  unique dates: {len(daily):,}")
         all_daily.append(daily)
 

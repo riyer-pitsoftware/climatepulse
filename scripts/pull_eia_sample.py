@@ -35,10 +35,16 @@ EVENTS = [
     ("Texas Winter Storm Uri",      "eia_erco_uri_2021.csv",           "ERCO", "2021-02-01T00", "2021-03-01T00"),
     ("Winter Storm Elliott",        "eia_pjm_elliott_2022.csv",        "PJM",  "2022-12-15T00", "2023-01-05T00"),
     ("PNW Heat Dome",              "eia_bpat_heatdome_2021.csv",      "BPAT", "2021-06-20T00", "2021-07-10T00"),
-    # --- Baselines ---
+    # --- Prior-year baselines (used for baseline_fossil_pct computation) ---
     ("ERCO Baseline (Feb 2020)",   "eia_erco_baseline_2020.csv",      "ERCO", "2020-02-01T00", "2020-03-01T00"),
     ("PJM Baseline (Dec 2021)",    "eia_pjm_baseline_2021.csv",       "PJM",  "2021-12-15T00", "2022-01-05T00"),
     ("BPAT Baseline (Jun 2020)",   "eia_bpat_baseline_2020.csv",      "BPAT", "2020-06-20T00", "2020-07-10T00"),
+    # --- Same-year pre-event baselines (cp-9v9): 2 weeks before each event ---
+    # These provide counterfactual "normal grid" data for the ML model.
+    # Tagged as period_type="pre_event_baseline" to distinguish from prior-year baselines.
+    ("ERCO Pre-Event Baseline (Jan 2021)",  "eia_erco_pre_event_2021.csv",  "ERCO", "2021-01-18T00", "2021-02-01T00"),
+    ("BPAT Pre-Event Baseline (Jun 2021)",  "eia_bpat_pre_event_2021.csv",  "BPAT", "2021-06-06T00", "2021-06-20T00"),
+    ("PJM Pre-Event Baseline (Dec 2022)",   "eia_pjm_pre_event_2022.csv",   "PJM",  "2022-12-01T00", "2022-12-15T00"),
 ]
 
 

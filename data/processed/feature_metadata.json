@@ -1,0 +1,148 @@
+{
+  "features": {
+    "temp_deviation": {
+      "group": "weather",
+      "type": "float",
+      "formula": "abs(mean_tmax - 65.0)",
+      "source_columns": [
+        "mean_tmax"
+      ],
+      "description": "Temperature deviation from 65F comfort baseline"
+    },
+    "cold_severity": {
+      "group": "weather",
+      "type": "float",
+      "formula": "max(0, 32.0 - mean_tmin)",
+      "source_columns": [
+        "mean_tmin"
+      ],
+      "description": "Degrees below freezing (cold stress proxy)"
+    },
+    "heat_severity": {
+      "group": "weather",
+      "type": "float",
+      "formula": "max(0, mean_tmax - 95.0)",
+      "source_columns": [
+        "mean_tmax"
+      ],
+      "description": "Degrees above 95F grid-emergency threshold"
+    },
+    "fossil_pct_change_lag1": {
+      "group": "lag",
+      "type": "float",
+      "formula": "groupby(event).shift(1) on fossil_pct_change",
+      "source_columns": [
+        "fossil_pct_change"
+      ],
+      "description": "Previous day fossil shift (within event)"
+    },
+    "fossil_pct_change": {
+      "group": "grid",
+      "type": "float",
+      "formula": "fossil_pct - baseline_fossil_pct (already in data)",
+      "source_columns": [
+        "fossil_pct_change"
+      ],
+      "description": "Current-day fossil shift from baseline"
+    },
+    "fossil_dominance_ratio": {
+      "group": "grid",
+      "type": "float",
+      "formula": "fossil_pct / max(renewable_pct, 1.0)",
+      "source_columns": [
+        "fossil_pct",
+        "renewable_pct"
+      ],
+      "description": "Fossil-to-renewable generation ratio"
+    },
+    "generation_utilization": {
+      "group": "grid",
+      "type": "float",
+      "formula": "total_generation_mwh / event_median_generation",
+      "source_columns": [
+        "total_generation_mwh"
+      ],
+      "description": "Grid utilization relative to event median"
+    },
+    "event_day": {
+      "group": "temporal",
+      "type": "int",
+      "formula": "day index within event (1-based; negative for baseline)",
+      "source_columns": [
+        "date",
+        "event"
+      ],
+      "description": "Position within event temporal arc"
+    },
+    "is_weekend": {
+      "group": "temporal",
+      "type": "binary",
+      "formula": "1 if dayofweek >= 5 else 0",
+      "source_columns": [
+        "date"
+      ],
+      "description": "Weekend indicator (demand confounder)"
+    },
+    "is_cold_event": {
+      "group": "event",
+      "type": "binary",
+      "formula": "1 if event in (uri_2021, elliott_2022) else 0",
+      "source_columns": [
+        "event"
+      ],
+      "description": "Cold event regime indicator"
+    },
+    "region_fossil_baseline": {
+      "group": "event",
+      "type": "float",
+      "formula": "copy of baseline_fossil_pct",
+      "source_columns": [
+        "baseline_fossil_pct"
+      ],
+      "description": "Regional grid fossil baseline (continuous encoding)"
+    },
+    "severity_x_fossil_shift": {
+      "group": "interaction",
+      "type": "float",
+      "formula": "temp_deviation * fossil_pct_change",
+      "source_columns": [
+        "temp_deviation",
+        "fossil_pct_change"
+      ],
+      "description": "Weather-grid interaction (threshold amplification)"
+    }
+  },
+  "targets": {
+    "pm25_aqi_next": {
+      "type": "float",
+      "formula": "pm25_aqi shifted -1 within event",
+      "description": "Next-day PM2.5 AQI (primary regression target)"
+    },
+    "ozone_aqi_next": {
+      "type": "float",
+      "formula": "ozone_aqi shifted -1 within event",
+      "description": "Next-day Ozone AQI (secondary regression target)"
+    },
+    "aqi_category_next": {
+      "type": "binary",
+      "formula": "good if pm25_aqi_next <= 50 else not_good",
+      "description": "Next-day AQI category (classification fallback)"
+    }
+  },
+  "row_accounting": {
+    "input_rows": 69,
+    "output_rows": 59,
+    "drops": {
+      "total_dropped": 10
+    }
+  },
+  "feature_count": 12,
+  "target_count": 3,
+  "model_recommendation": "Ridge or ElasticNet regression",
+  "decisions": {
+    "date": "2026-03-18",
+    "cut_from": 25,
+    "cut_to": 12,
+    "reason": "Row-to-feature ratio at original 25 was 2.4:1; cut to achieve 8-10:1"
+  }
+}

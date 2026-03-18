@@ -67,6 +67,50 @@ EVENTS = [
         "enddate": "2021-07-10",
         "datatypeid": "TMIN,TMAX",
     },
+    # ── Baseline periods (cp-9v9): same-year, 2 weeks before each event ──
+    # These provide counterfactual "normal weather" data for the ML model.
+    {
+        "name": "uri_baseline_houston_tx",
+        "locationid": "FIPS:48201",  # Harris County (Houston)
+        "startdate": "2021-01-18",
+        "enddate": "2021-01-31",
+        "datatypeid": "TMIN,TMAX,PRCP,SNOW",
+    },
+    {
+        "name": "uri_baseline_dallas_tx",
+        "locationid": "FIPS:48113",  # Dallas County
+        "startdate": "2021-01-18",
+        "enddate": "2021-01-31",
+        "datatypeid": "TMIN,TMAX,PRCP,SNOW",
+    },
+    {
+        "name": "heatdome_baseline_multnomah_or",
+        "locationid": "FIPS:41051",  # Multnomah County (Portland)
+        "startdate": "2021-06-06",
+        "enddate": "2021-06-19",
+        "datatypeid": "TMIN,TMAX",
+    },
+    {
+        "name": "heatdome_baseline_king_wa",
+        "locationid": "FIPS:53033",  # King County (Seattle)
+        "startdate": "2021-06-06",
+        "enddate": "2021-06-19",
+        "datatypeid": "TMIN,TMAX",
+    },
+    {
+        "name": "elliott_baseline_allegheny_pa",
+        "locationid": "FIPS:42003",  # Allegheny County (Pittsburgh)
+        "startdate": "2022-12-01",
+        "enddate": "2022-12-14",
+        "datatypeid": "TMIN,TMAX,PRCP,SNOW",
+    },
+    {
+        "name": "elliott_baseline_hamilton_oh",
+        "locationid": "FIPS:39061",  # Hamilton County (Cincinnati)
+        "startdate": "2022-12-01",
+        "enddate": "2022-12-14",
+        "datatypeid": "TMIN,TMAX,PRCP,SNOW",
+    },
 ]
 
 LIMIT = 1000

@@ -35,6 +35,25 @@ EVENTS = {
     },
 }
 
+# cp-9v9: Same-year pre-event baseline files (2 weeks before each event).
+# These are processed identically to event data and tagged with
+# period_type="pre_event_baseline" so the join script can include them
+# as counterfactual "normal grid" rows for the ML model.
+PRE_EVENT_BASELINES = {
+    "ERCO_URI_2021": {
+        "file": RAW / "eia_erco_pre_event_2021.csv",
+        "label": "ERCO Pre-Event Baseline (Jan 2021)",
+    },
+    "BPAT_HeatDome_2021": {
+        "file": RAW / "eia_bpat_pre_event_2021.csv",
+        "label": "BPAT Pre-Event Baseline (Jun 2021)",
+    },
+    "PJM_Elliott_2022": {
+        "file": RAW / "eia_pjm_pre_event_2022.csv",
+        "label": "PJM Pre-Event Baseline (Dec 2022)",
+    },
+}
+
 # ── fuel-type categorization ──────────────────────────────────────────
 FUEL_CATEGORIES = {
     "SUN": "renewable",
@@ -212,6 +231,21 @@ def main():
         analyze_event(ev, bl, cfg["label"])
 
         all_frames.append(ev)
+        all_frames.append(bl)
+
+    # cp-9v9: Load and process pre-event baseline files (same-year, 2 weeks before event).
+    # These are tagged as period_type="pre_event_baseline" and use the SAME event name
+    # so the join script can pair them with the right event.
+    for ename, bl_cfg in PRE_EVENT_BASELINES.items():
+        bl_file = bl_cfg["file"]
+        if not bl_file.exists():
+            print(f"\n  SKIP pre-event baseline for {ename}: {bl_file.name} not yet pulled")
+            continue
+        print(f"\nLoading pre-event baseline: {bl_cfg['label']} ...")
+        bl_raw = load_and_tag(bl_file, ename, "pre_event_baseline")
+        print(f"  rows: {len(bl_raw):,}")
+        print(f"  period: {bl_raw['datetime'].min()} → {bl_raw['datetime'].max()}")
+        bl = compute_hourly_mix(bl_raw)
         all_frames.append(bl)
 
     # ── build combined output DataFrame ────────────────────────────

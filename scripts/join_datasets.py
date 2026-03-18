@@ -32,7 +32,11 @@ EVENT_MAP_EPA = {
 
 
 def load_noaa():
-    """Load NOAA weather timeline — already daily per event."""
+    """Load NOAA weather timeline — already daily per event.
+
+    cp-9v9: If is_baseline column exists (from expanded NOAA processing),
+    baseline rows are included and tagged. Otherwise, all rows are event data.
+    """
     df = pd.read_csv(DATA_DIR / "noaa_event_timeline.csv")
     df["event"] = df["event"].map(EVENT_MAP_NOAA)
     df["date"] = pd.to_datetime(df["date"])
@@ -90,11 +94,13 @@ def load_eia():
     daily_wide["renewable_pct"] = (daily_wide["renewable"] / total * 100).round(2)
     daily_wide["total_generation_mwh"] = total
 
-    # Split into baseline averages and event data
+    # Split into prior-year baseline averages, event data, and pre-event baseline
     baseline = daily_wide[daily_wide["period_type"] == "baseline"]
     event = daily_wide[daily_wide["period_type"] == "event"].copy()
+    pre_event = daily_wide[daily_wide["period_type"] == "pre_event_baseline"].copy()
 
     # Compute per-event baseline averages for fossil/renewable pct
+    # (uses prior-year data, not pre-event data)
     baseline_avg = (
         baseline.groupby("event")[["fossil_pct", "renewable_pct"]]
         .mean()
@@ -108,15 +114,35 @@ def load_eia():
     event = event.merge(baseline_avg, on="event", how="left")
     event["fossil_pct_change"] = (event["fossil_pct"] - event["baseline_fossil_pct"]).round(2)
     event["renewable_pct_change"] = (event["renewable_pct"] - event["baseline_renewable_pct"]).round(2)
+    event["is_baseline"] = 0
 
     cols = [
-        "event", "date",
+        "event", "date", "is_baseline",
         "fossil", "renewable", "other", "total_generation_mwh",
         "fossil_pct", "renewable_pct",
         "baseline_fossil_pct", "baseline_renewable_pct",
         "fossil_pct_change", "renewable_pct_change",
     ]
-    return event[cols]
+
+    # cp-9v9: Include pre-event baseline rows if they exist.
+    # These get the same baseline_fossil_pct (prior-year avg) and their own
+    # fossil_pct_change computed the same way. Expect ~0 shift for normal days.
+    if len(pre_event) > 0:
+        pre_event["date"] = pd.to_datetime(pre_event["date"])
+        pre_event = pre_event.merge(baseline_avg, on="event", how="left")
+        pre_event["fossil_pct_change"] = (
+            pre_event["fossil_pct"] - pre_event["baseline_fossil_pct"]
+        ).round(2)
+        pre_event["renewable_pct_change"] = (
+            pre_event["renewable_pct"] - pre_event["baseline_renewable_pct"]
+        ).round(2)
+        pre_event["is_baseline"] = 1
+        result = pd.concat([event[cols], pre_event[cols]], ignore_index=True)
+        print(f"  EIA: {len(event)} event rows + {len(pre_event)} pre-event baseline rows")
+    else:
+        result = event[cols]
+
+    return result
 
 
 def _build_county_monitor_weights():
@@ -224,7 +250,13 @@ def main():
     print(f"  EPA:  {len(epa)} rows, events: {epa.event.unique().tolist()}")
 
     # Join NOAA × EIA on event + date
-    merged = noaa.merge(eia, on=["event", "date"], how="inner", suffixes=("", "_eia"))
+    # cp-9v9: If NOAA has is_baseline, use it. Otherwise derive from EIA's is_baseline.
+    if "is_baseline" in noaa.columns and "is_baseline" in eia.columns:
+        merged = noaa.merge(eia, on=["event", "date", "is_baseline"], how="inner", suffixes=("", "_eia"))
+    elif "is_baseline" in eia.columns:
+        merged = noaa.merge(eia, on=["event", "date"], how="inner", suffixes=("", "_eia"))
+    else:
+        merged = noaa.merge(eia, on=["event", "date"], how="inner", suffixes=("", "_eia"))
     print(f"\n  NOAA × EIA inner join: {len(merged)} rows")
 
     # Join with EPA on event + date
