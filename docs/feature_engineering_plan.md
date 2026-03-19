@@ -1,4 +1,10 @@
-# Feature Engineering Plan — cp-1a3
+> **HISTORICAL — US Climate-AQI Thesis (FAILED)**
+> This document records the original US feature engineering plan (12 features for AQI prediction).
+> The model built from these features failed cross-validation. The project pivoted to
+> Canadian Agriculture in Session 4. Preserved for audit trail.
+> Current pipeline: see `docs/pipeline_architecture.md`
+
+# Feature Engineering Plan — cp-1a3 (ARCHIVED)
 
 **Input:** `data/processed/unified_analysis.csv` (expanded with baseline days via cp-9v9)
 **Output:** `data/processed/feature_matrix.csv` + `data/processed/feature_metadata.json`

@@ -1,4 +1,10 @@
-Model Training Guide — cp-f5g
+> **HISTORICAL — US Climate-AQI Thesis (FAILED)**
+> This document records the original US model training attempt (Ridge/ElasticNet on 91 rows).
+> The model failed cross-validation (R²=0.09). The project pivoted to Canadian Agriculture
+> in Session 4. Preserved as Act 1 "honest failure" narrative for the demo.
+> Current pipeline: see `docs/pipeline_architecture.md`
+
+Model Training Guide — cp-f5g (ARCHIVED)
 
 GOAL
 Given today's weather + grid conditions, predict tomorrow's PM2.5 air quality index.
