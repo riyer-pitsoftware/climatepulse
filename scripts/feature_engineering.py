@@ -85,7 +85,7 @@ def build_lag_features(df):
 
     - fossil_pct_change_lag1: previous day's fossil shift, within same event.
       First row of each event gets NaN (no cross-event leakage).
-      Strongest statistical signal: pooled r=0.378 (p=0.002), Uri r=0.697 (p<0.001).
+      Pooled lag-1 r=0.136 (p=0.188, n.s.); Uri r=0.354 (p=0.051, borderline).
     """
     df["fossil_pct_change_lag1"] = df.groupby("event")["fossil_pct_change"].shift(1)
     return df

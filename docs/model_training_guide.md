@@ -34,12 +34,17 @@ Ridge / ElasticNet (not XGBoost)
 
 Leave-one-event-out CV (not random split)
   3 events = 3 folds. Random splitting leaks event-specific patterns.
-  Holding out an entire event tests cross-region generalization.
+  Holding out an entire event tests cross-event prediction — whether
+  patterns learned from two events transfer to a third. This is a
+  three-event regime holdout, not evidence of broad cross-region
+  generalization (only 3 regions are represented).
   Note: the outer split is event-wise, but inner hyperparameter tuning
   (RidgeCV alpha, ElasticNetCV alpha/l1_ratio) uses row-wise 3-fold CV
-  within the training set, not a nested event-aware split. With only 2
-  training events per outer fold, a fully event-aware inner split would
-  leave only 1 event for tuning validation, making it impractical.
+  within the training set, not a nested event-aware split. This means
+  within-event structure can still influence hyperparameter selection.
+  With only 2 training events per outer fold, a fully event-aware inner
+  split would leave only 1 event for tuning validation, making it
+  impractical.
 
 TRAINING PIPELINE — 6 STEPS
 
@@ -74,7 +79,9 @@ Step 4 — Cross-Validation (Leave-One-Event-Out)
     Fold 1: Train Uri + Elliott -> predict Heat Dome
     Fold 2: Train Uri + Heat Dome -> predict Elliott
     Fold 3: Train Elliott + Heat Dome -> predict Uri
-  Tests whether the model generalizes across weather types and grid regions.
+  Tests whether patterns from two events transfer to a third (different
+  event regime, region, and season). This is a three-event holdout, not
+  proof of broad generalization.
 
 Step 5 — Classification Fallback
   If regression R-squared is poor, fall back to binary prediction:
@@ -104,7 +111,7 @@ flowchart TD
     C["<b>Step 2: Ridge Regression</b><br/>alpha=145.63<br/><i>In-sample R²=0.244, MAE=9.5</i>"]
     C --> D
 
-    D["<b>Step 3: ElasticNet</b><br/>alpha=1.93, l1_ratio=0.10<br/><i>In-sample R²=0.229, MAE=9.5</i><br/>Kept 12/12 features"]
+    D["<b>Step 3: ElasticNet</b><br/>alpha=1.93, l1_ratio=0.10<br/><i>In-sample R²=0.229, MAE=9.5</i><br/>Kept 11/12 features"]
     D --> E
 
     E["<b>Step 4: Leave-One-Event-Out CV</b><br/>Train on 2 events → predict 3rd"]
@@ -112,7 +119,7 @@ flowchart TD
     E --> F2["Hold out Heat Dome<br/>R² = −0.016"]
     E --> F3["Hold out Uri<br/>R² = −0.212"]
 
-    F1 --> G{"Overall R² = 0.047<br/>Regression useful?"}
+    F1 --> G{"All 3 folds negative R²<br/>Pooled R² = 0.047 (misleading)<br/>Regression useful?"}
     F2 --> G
     F3 --> G
 
@@ -300,10 +307,11 @@ Interpretation — What Prediction Compression Means
   versus actual range of 63.8. The model sees variation in features but
   has learned coefficients so small that predictions barely move.
 
-  Ridge on Uri: 27% compression — the least compressed fold. Uri is
-  where the thesis signal is strongest (lagged r=+0.35), and the model
-  retains some predictive spread. But even here, the predicted range
-  (24.9) undershoots the actual range (34.1) by 27%.
+  Ridge on Uri: 27% compression — the least compressed fold. Uri has
+  the strongest (but still borderline) lagged association (r=+0.35,
+  p=0.051), and the model retains some predictive spread. But even
+  here, the predicted range (24.9) undershoots the actual range (34.1)
+  by 27%, and the fold R² is still negative (−0.212).
 
   Bottom line: Both models default to predicting near the global training
   mean (~40-44 AQI) rather than capturing event-specific AQI dynamics.
@@ -363,14 +371,18 @@ STEP 3 — ELASTICNET (in-sample)
 
 STEP 4 — LEAVE-ONE-EVENT-OUT CROSS-VALIDATION
 
-  This is the honest test. Scaling was applied fold-internally (scaler fit
-  on in-fold training rows only) to prevent held-out event leakage. Results:
+  This is the primary validation test. Scaling was applied fold-internally
+  (scaler fit on in-fold training rows only) to prevent held-out event
+  leakage. Results:
 
   Ridge:
     Hold out Elliott:    R² = -0.139  MAE = 10.8  (worse than mean)
     Hold out Heat Dome:  R² = -0.016  MAE = 12.6  (worse than mean)
     Hold out Uri:        R² = -0.212  MAE =  7.8  (worse than mean)
     OVERALL:             R² =  0.047  MAE = 10.4
+    Note: the positive pooled R² is an artifact of concatenating held-out
+    predictions across events. Every individual fold is negative. The
+    pooled score should not be read as evidence the model works.
 
   ElasticNet:
     Hold out Elliott:    R² = -0.070  MAE = 10.6
@@ -445,13 +457,17 @@ OVERALL ASSESSMENT
   The model does not generalize. Cross-validation shows negative R² on all 3
   held-out events for both Ridge and ElasticNet, and the classification
   fallback matches the naive baseline.
-  This is the primary result: the predictive setup fails its own honest test.
+  This is the primary result: the predictive setup fails its own validation test.
 
-  The underlying signal is heterogeneous across events. Uri carries most of the
-  lagged fossil-to-AQI association (fold-level classification F1=0.50, lagged
-  r=+0.35, p=0.051). Elliott and Heat Dome are weak or null on the core
-  relationship (F1=0.00 for both). This heterogeneity makes pooled cross-event
-  prediction unreliable and makes the model's failure unsurprising.
+  The underlying signal is heterogeneous across events. Uri has the
+  strongest lagged association (r=+0.35, p=0.051 — borderline, not
+  significant at conventional thresholds) and the only non-zero
+  classification F1 (0.50). Elliott and Heat Dome are weak or null
+  (F1=0.00 for both). But even the Uri evidence is slim: the pooled
+  lag-1 correlation is null (r=0.136, p=0.188), and the Uri-specific
+  regression explains only R²=0.125. This heterogeneity makes pooled
+  cross-event prediction unreliable and makes the model's failure
+  unsurprising.
 
   Coefficient inspection is exploratory only. After cross-validation failure,
   Ridge coefficients describe what the failed model weighted — they do not
@@ -460,7 +476,7 @@ OVERALL ASSESSMENT
   Event/regime proxies dominate. These patterns cannot be cited as confirmatory
   evidence.
 
-  This is an honest, expected result for a small observational dataset with
+  This is an expected result for a small observational dataset with
   heterogeneous events. For the hackathon narrative, present the model as a
   failed generalization test, not as a source of thesis support.
 
