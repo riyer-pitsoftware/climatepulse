@@ -329,10 +329,10 @@ with f2:
     lagged = stats_data.get("lagged_correlation", {}).get("pooled", {})
     lag1 = lagged.get("lag_1", {})
     st.warning(
-        f"**1-day lag: r={lag1.get('pearson_r', 0.38):+.2f}** "
-        f"(p={lag1.get('p_value_bh', lag1.get('p_value_raw', 0.002))})\n\n"
-        "Same-day correlation is weak, but with a 24hr delay the association strengthens. "
-        "Uri shows the strongest signal (r=+0.70)."
+        f"**1-day lag: r={lag1.get('pearson_r', 0.14):+.2f}** "
+        f"(p={lag1.get('p_value_bh', lag1.get('p_value_raw', 0.19))})\n\n"
+        "Same-day and lagged correlations are weak at the pooled level. "
+        "Uri shows the strongest case-study signal (r=+0.35, p=0.051)."
     )
 
 with f3:

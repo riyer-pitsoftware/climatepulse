@@ -376,12 +376,13 @@ FINDING 1 — WEATHER → FOSSIL SHIFT: CONFIRMED
     renewable -11.1pp (p<0.0001, d=5.20) — massive effect
   - The grid DOES burn more fossil fuel during extreme weather events
 
-FINDING 2 — FOSSIL SHIFT → AQI DEGRADATION: CONFIRMED (LAGGED)
-  - Same-day correlation: r=0.18, p=0.15 — NOT significant
-  - 1-day lag (pooled): r=+0.38, p=0.0023 — SIGNIFICANT **
-  - Winter Storm Uri lag-1d: r=+0.70, p=0.0001 — HIGHLY SIGNIFICANT ***
-  - Physical mechanism: emissions take ~24h to disperse and degrade AQI
-  - Each 1pp fossil increase → +0.5 PM2.5 AQI points next day (Uri)
+FINDING 2 — FOSSIL SHIFT → AQI DEGRADATION: WEAK / NON-SIGNIFICANT
+  - Same-day correlation: r=0.11, p=0.29 — NOT significant
+  - 1-day lag (pooled): r=+0.14, p=0.19 — NOT significant
+  - Winter Storm Uri lag-1d: r=+0.35, p=0.051 — borderline
+  - Uri regression: R²=0.125, slope=0.201 AQI points per 1pp fossil shift
+  - Note: earlier analysis on pre-baseline-expansion data showed stronger numbers;
+    current stats_results.json reflects the expanded 91-row dataset
 
 FINDING 3 — HEAT EXTREMES → DIRECT AQI IMPACT
   - PNW Heat Dome: temperature → PM2.5 r=+0.72, p=0.0003

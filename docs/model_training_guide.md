@@ -1,8 +1,14 @@
 > **HISTORICAL — US Climate-AQI Thesis (FAILED)**
 > This document records the original US model training attempt (Ridge/ElasticNet on 91 rows).
-> The model failed cross-validation (R²=0.09). The project pivoted to Canadian Agriculture
-> in Session 4. Preserved as Act 1 "honest failure" narrative for the demo.
+> The model failed cross-validation (Ridge R²=0.047, ElasticNet R²=-0.14). The project
+> pivoted to Canadian Agriculture in Session 4. Preserved as Act 1 "honest failure"
+> narrative for the demo.
 > Current pipeline: see `docs/pipeline_architecture.md`
+>
+> **Reconciliation note (2026-03-19):** Numbers in this guide were reconciled against
+> `data/processed/model_results.json` and `data/processed/stats_results.json` per
+> reviewer critique. Earlier drafts cited stronger correlations from a pre-baseline-expansion
+> statistical run; the current artifacts reflect the expanded 91-row dataset.
 
 Model Training Guide — cp-f5g (ARCHIVED)
 
@@ -29,6 +35,11 @@ Ridge / ElasticNet (not XGBoost)
 Leave-one-event-out CV (not random split)
   3 events = 3 folds. Random splitting leaks event-specific patterns.
   Holding out an entire event tests cross-region generalization.
+  Note: the outer split is event-wise, but inner hyperparameter tuning
+  (RidgeCV alpha, ElasticNetCV alpha/l1_ratio) uses row-wise 3-fold CV
+  within the training set, not a nested event-aware split. With only 2
+  training events per outer fold, a fully event-aware inner split would
+  leave only 1 event for tuning validation, making it impractical.
 
 TRAINING PIPELINE — 6 STEPS
 
@@ -38,9 +49,10 @@ Step 1 — Standardize Features
   Fit the scaler on the training rows of each fold only, then transform the
   held-out fold with that same fitted scaler. Do NOT call scaler.fit() on all
   91 rows before splitting — doing so leaks held-out event statistics into
-  the training transform and inflates CV scores. The pipeline uses
-  sklearn.pipeline.Pipeline so that fit_transform runs only on the in-fold
-  training set automatically.
+  the training transform and inflates CV scores. The implementation in
+  train_model.py does manual per-fold StandardScaler fitting (fit on
+  train rows, transform both train and held-out rows) rather than using
+  sklearn.pipeline.Pipeline.
 
   Why scale at all? Ridge/ElasticNet penalize large coefficients. If
   fossil_pct_change ranges 0-25 but generation_utilization ranges 0.7-1.4,
@@ -96,15 +108,15 @@ flowchart TD
     D --> E
 
     E["<b>Step 4: Leave-One-Event-Out CV</b><br/>Train on 2 events → predict 3rd"]
-    E --> F1["Hold out Elliott<br/>R² = −0.062"]
-    E --> F2["Hold out Heat Dome<br/>R² = +0.009"]
-    E --> F3["Hold out Uri<br/>R² = −0.130"]
+    E --> F1["Hold out Elliott<br/>R² = −0.139"]
+    E --> F2["Hold out Heat Dome<br/>R² = −0.016"]
+    E --> F3["Hold out Uri<br/>R² = −0.212"]
 
-    F1 --> G{"Overall R² = 0.09<br/>Regression useful?"}
+    F1 --> G{"Overall R² = 0.047<br/>Regression useful?"}
     F2 --> G
     F3 --> G
 
-    G -- "NO — worse than mean<br/>on 2/3 folds" --> H
+    G -- "NO — worse than mean<br/>on all 3 folds" --> H
 
     H["<b>Step 5: Classification Fallback</b><br/>Logistic Regression<br/>good vs not_good (AQI 50)"]
     H --> I{"Accuracy=76% = baseline<br/>Recall=18%, F1=0.27<br/>Classification useful?"}
@@ -147,17 +159,17 @@ block-beta
 
     block:tier1:1
         columns 4
-        A["generation_utilization<br/><b>+1.133</b><br/>grid"] B["region_fossil_baseline<br/><b>+1.047</b><br/>event"] C["is_cold_event<br/><b>+1.035</b><br/>event"] D["fossil_dominance_ratio<br/><b>+1.022</b><br/>grid · THESIS-ALIGNED (exploratory)"]
+        A["generation_utilization<br/><b>+1.419</b><br/>grid"] B["fossil_dominance_ratio<br/><b>+1.252</b><br/>grid · THESIS-ALIGNED (exploratory)"] C["region_fossil_baseline<br/><b>+1.240</b><br/>event"] D["is_cold_event<br/><b>+1.220</b><br/>event"]
     end
 
     block:tier2:1
         columns 4
-        E["temp_deviation<br/><b>+0.882</b><br/>weather"] F["heat_severity<br/><b>+0.872</b><br/>weather"] G["event_day<br/><b>+0.745</b><br/>temporal"] H["severity×fossil<br/><b>+0.655</b><br/>interaction · THESIS-ALIGNED (exploratory)"]
+        E["heat_severity<br/><b>+1.139</b><br/>weather"] F["temp_deviation<br/><b>+1.049</b><br/>weather"] G["event_day<br/><b>+0.943</b><br/>temporal"] H["severity×fossil<br/><b>+0.797</b><br/>interaction · THESIS-ALIGNED (exploratory)"]
     end
 
     block:tier3:1
         columns 4
-        I["is_weekend<br/><b>+0.384</b><br/>temporal"] J["cold_severity<br/><b>−0.339</b><br/>weather"] K["fossil_lag1<br/><b>−0.276</b><br/>lag · THESIS-CONTRARY (exploratory)"] L["fossil_pct_change<br/><b>+0.095</b><br/>grid · THESIS-ALIGNED weak (exploratory)"]
+        I["cold_severity<br/><b>−0.738</b><br/>weather"] J["is_weekend<br/><b>+0.514</b><br/>temporal"] K["fossil_lag1<br/><b>−0.479</b><br/>lag · THESIS-CONTRARY (exploratory)"] L["fossil_pct_change<br/><b>+0.040</b><br/>grid · THESIS-ALIGNED weak (exploratory)"]
     end
 
     style A fill:#1565c0,color:#fff
@@ -185,14 +197,14 @@ flowchart LR
     W["<b>Extreme Weather</b><br/>Heat Dome · Uri · Elliott<br/>3 events, 3 grid regions"]
     W -- "<b>LINK 1: CONFIRMED</b><br/>+3.44pp fossil shift<br/>p=0.0003<br/>Cohen's d: 0.37–2.43" --> G
     G["<b>Grid Fossil Surge</b><br/>Fossil generation rises<br/>Renewables drop"]
-    G -- "<b>LINK 2: TENTATIVE</b><br/>Lag-1d pooled r=+0.38<br/>p=0.002<br/>Uri r=+0.70" --> A
+    G -- "<b>LINK 2: WEAK</b><br/>Lag-1d pooled r=+0.14<br/>p=0.19 (n.s.)<br/>Uri r=+0.35, p=0.051" --> A
     A["<b>AQI Degradation</b><br/>PM2.5 rises next day<br/>~24hr emission lag"]
 
     W -. "<b>CONFOUNDING</b><br/>Wildfire smoke (Heat Dome)<br/>Meteorological dispersion" .-> A
 
     subgraph model ["ML Model Results"]
         direction TB
-        M1["Regression: R²=0.09<br/>Cannot predict across events"]
+        M1["Regression: R²=0.047 (Ridge), −0.14 (ElasticNet)<br/>Cannot predict across events"]
         M2["Classification: F1=0.27<br/>= naive baseline"]
         M3["Coefficients are DESCRIPTIVE ONLY<br/>Model failed validation — no confirmatory value<br/>event/regime proxies dominate<br/>fossil_pct_change +0.10 is last-ranked"]
         M1 --> M3
@@ -289,7 +301,7 @@ Interpretation — What Prediction Compression Means
   has learned coefficients so small that predictions barely move.
 
   Ridge on Uri: 27% compression — the least compressed fold. Uri is
-  where the thesis signal is strongest (lagged r=+0.70), and the model
+  where the thesis signal is strongest (lagged r=+0.35), and the model
   retains some predictive spread. But even here, the predicted range
   (24.9) undershoots the actual range (34.1) by 27%.
 
@@ -327,12 +339,12 @@ STEP 2 — RIDGE REGRESSION (in-sample)
   R² = 0.244  MAE = 9.5 AQI points  (target std = 13.1)
 
   Top coefficients (standardized):
-    +1.133  generation_utilization      (grid stress indicator)
-    +1.047  region_fossil_baseline      (regional grid character)
-    +1.035  is_cold_event               (event regime)
-    +1.022  fossil_dominance_ratio      (fossil-to-renewable ratio)
-    +0.882  temp_deviation              (weather severity)
-    +0.095  fossil_pct_change           (thesis feature — weak)
+    +1.419  generation_utilization      (grid stress indicator)
+    +1.252  fossil_dominance_ratio      (fossil-to-renewable ratio)
+    +1.240  region_fossil_baseline      (regional grid character)
+    +1.220  is_cold_event               (event regime)
+    +1.139  heat_severity               (weather severity)
+    +0.040  fossil_pct_change           (thesis feature — weak)
 
   Note: In-sample R²=0.24 is the ceiling. Cross-validation will be lower.
 
@@ -341,10 +353,12 @@ STEP 3 — ELASTICNET (in-sample)
 
   Best alpha: 1.93, best l1_ratio: 0.10 (nearly pure Ridge)
   R² = 0.229  MAE = 9.5 AQI points
-  Features kept: 12/12 (no features dropped)
+  Features kept: 11/12 (fossil_pct_change zeroed out by L1 penalty)
 
-  Conclusion: ElasticNet converges to Ridge behavior. No feature is
-  useless enough to zero out. Both models perform identically.
+  Conclusion: ElasticNet drops the direct thesis feature (fossil_pct_change)
+  entirely. The L1 penalty judges it expendable — consistent with its
+  last-place Ridge coefficient (+0.040). ElasticNet overall R² is worse
+  than Ridge (-0.14 vs 0.047), with Heat Dome and Uri folds strongly negative.
 
 
 STEP 4 — LEAVE-ONE-EVENT-OUT CROSS-VALIDATION
@@ -353,16 +367,16 @@ STEP 4 — LEAVE-ONE-EVENT-OUT CROSS-VALIDATION
   on in-fold training rows only) to prevent held-out event leakage. Results:
 
   Ridge:
-    Hold out Elliott:    R² = -0.062  MAE = 10.5  (worse than mean)
-    Hold out Heat Dome:  R² = +0.009  MAE = 11.8  (barely above mean)
-    Hold out Uri:        R² = -0.130  MAE =  7.6  (worse than mean)
-    OVERALL:             R² =  0.091  MAE = 10.0
+    Hold out Elliott:    R² = -0.139  MAE = 10.8  (worse than mean)
+    Hold out Heat Dome:  R² = -0.016  MAE = 12.6  (worse than mean)
+    Hold out Uri:        R² = -0.212  MAE =  7.8  (worse than mean)
+    OVERALL:             R² =  0.047  MAE = 10.4
 
   ElasticNet:
-    Hold out Elliott:    R² = -0.080  MAE = 10.6
-    Hold out Heat Dome:  R² = -0.001  MAE = 11.9
-    Hold out Uri:        R² = -0.124  MAE =  7.6
-    OVERALL:             R² =  0.083  MAE = 10.1
+    Hold out Elliott:    R² = -0.070  MAE = 10.6
+    Hold out Heat Dome:  R² = -0.411  MAE = 15.7
+    Hold out Uri:        R² = -0.354  MAE =  8.7
+    OVERALL:             R² = -0.140  MAE = 11.7
 
   Diagnosis: Negative R² on individual folds means the model is worse than
   just predicting the mean AQI. Predicted ranges are compressed (e.g.,
@@ -401,24 +415,24 @@ STEP 6 — FEATURE IMPORTANCE (EXPLORATORY / DESCRIPTIVE ONLY)
   Ridge coefficients (standardized, ranked by absolute value):
 
     Feature                        Group         Coef    Thesis alignment?
-    generation_utilization         grid         +1.133   —
-    region_fossil_baseline         event        +1.047   —
-    is_cold_event                  event        +1.035   —
-    fossil_dominance_ratio         grid         +1.022   aligned (descriptive)
-    temp_deviation                 weather      +0.882   —
-    heat_severity                  weather      +0.872   —
-    event_day                      temporal     +0.745   —
-    severity_x_fossil_shift        interaction  +0.655   aligned (descriptive)
-    is_weekend                     temporal     +0.384   —
-    cold_severity                  weather      -0.339   —
-    fossil_pct_change_lag1         lag          -0.276   contrary (descriptive)
-    fossil_pct_change              grid         +0.095   aligned but weak (descriptive)
+    generation_utilization         grid         +1.419   —
+    fossil_dominance_ratio         grid         +1.252   aligned (descriptive)
+    region_fossil_baseline         event        +1.240   —
+    is_cold_event                  event        +1.220   —
+    heat_severity                  weather      +1.139   —
+    temp_deviation                 weather      +1.049   —
+    event_day                      temporal     +0.943   —
+    severity_x_fossil_shift        interaction  +0.797   aligned (descriptive)
+    cold_severity                  weather      -0.738   —
+    is_weekend                     temporal     +0.514   —
+    fossil_pct_change_lag1         lag          -0.479   contrary (descriptive)
+    fossil_pct_change              grid         +0.040   aligned but weak (descriptive)
 
   Interpretation:
-    fossil_dominance_ratio     +1.022  direction-aligned, but partly a grid-state proxy
-    severity_x_fossil_shift    +0.655  direction-aligned, but exploratory only
-    fossil_pct_change          +0.095  weak direct thesis signal
-    fossil_pct_change_lag1     -0.276  contrary to the thesis direction
+    fossil_dominance_ratio     +1.252  direction-aligned, but partly a grid-state proxy
+    severity_x_fossil_shift    +0.797  direction-aligned, but exploratory only
+    fossil_pct_change          +0.040  negligible direct thesis signal (zeroed by ElasticNet)
+    fossil_pct_change_lag1     -0.479  contrary to the thesis direction
 
   Grid state and event/regime features dominate.
   Direct fossil shift (the thesis variable) ranks last among non-zero features.
@@ -428,21 +442,23 @@ STEP 6 — FEATURE IMPORTANCE (EXPLORATORY / DESCRIPTIVE ONLY)
 
 OVERALL ASSESSMENT
 
-  The model does not generalize. Cross-validation shows negative R² on 2 of 3
-  held-out events, and the classification fallback matches the naive baseline.
+  The model does not generalize. Cross-validation shows negative R² on all 3
+  held-out events for both Ridge and ElasticNet, and the classification
+  fallback matches the naive baseline.
   This is the primary result: the predictive setup fails its own honest test.
 
   The underlying signal is heterogeneous across events. Uri carries most of the
   lagged fossil-to-AQI association (fold-level classification F1=0.50, lagged
-  r=+0.70). Elliott and Heat Dome are weak or null on the core relationship
-  (F1=0.00 for both). This heterogeneity makes pooled cross-event prediction
-  unreliable and makes the model's failure unsurprising.
+  r=+0.35, p=0.051). Elliott and Heat Dome are weak or null on the core
+  relationship (F1=0.00 for both). This heterogeneity makes pooled cross-event
+  prediction unreliable and makes the model's failure unsurprising.
 
   Coefficient inspection is exploratory only. After cross-validation failure,
   Ridge coefficients describe what the failed model weighted — they do not
-  validate the thesis. The direct thesis variable (fossil_pct_change, +0.095)
-  ranks last among non-zero features. Event/regime proxies dominate. These
-  patterns cannot be cited as confirmatory evidence.
+  validate the thesis. The direct thesis variable (fossil_pct_change, +0.040)
+  ranks last among non-zero features and is zeroed out entirely by ElasticNet.
+  Event/regime proxies dominate. These patterns cannot be cited as confirmatory
+  evidence.
 
   This is an honest, expected result for a small observational dataset with
   heterogeneous events. For the hackathon narrative, present the model as a

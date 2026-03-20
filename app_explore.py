@@ -326,9 +326,9 @@ with tab_causal:
         st.markdown("#### Finding 2 — TENTATIVE")
         st.warning(
             "**Fossil generation associated with next-day AQI (case-study finding)**\n\n"
-            "The same-day correlation is weak (r=0.18, p=0.15), but with a **1-day lag** "
-            "the pooled association strengthens: r=+0.38 (p=0.002). Winter Storm Uri shows "
-            "the strongest case-study signal at r=+0.70 (p=0.0001). "
+            "The same-day correlation is weak (r=0.11, p=0.29), and the **1-day lag** "
+            "pooled association is also non-significant: r=+0.14 (p=0.19). Winter Storm Uri shows "
+            "the strongest case-study signal at r=+0.35 (p=0.051). "
             "However, this association is not consistent across all events and does not "
             "establish causation."
         )
