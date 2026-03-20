@@ -204,7 +204,7 @@ flowchart LR
     W["<b>Extreme Weather</b><br/>Heat Dome · Uri · Elliott<br/>3 events, 3 grid regions"]
     W -- "<b>LINK 1: CONFIRMED</b><br/>+3.44pp fossil shift<br/>p=0.0003<br/>Cohen's d: 0.37–2.43" --> G
     G["<b>Grid Fossil Surge</b><br/>Fossil generation rises<br/>Renewables drop"]
-    G -- "<b>LINK 2: WEAK</b><br/>Lag-1d pooled r=+0.14<br/>p=0.19 (n.s.)<br/>Uri r=+0.35, p=0.051" --> A
+    G -- "<b>LINK 2: WEAK</b><br/>Lag-1d pooled r=+0.14, p=0.19 (n.s.)<br/>Heat Dome lag-1 r=+0.48, p=0.004<br/>Uri lag-1 r=+0.35, p=0.051<br/>Elliott lag-1 r=+0.01 (null)" --> A
     A["<b>AQI Degradation</b><br/>PM2.5 rises next day<br/>~24hr emission lag"]
 
     W -. "<b>CONFOUNDING</b><br/>Wildfire smoke (Heat Dome)<br/>Meteorological dispersion" .-> A
@@ -308,10 +308,12 @@ Interpretation — What Prediction Compression Means
   has learned coefficients so small that predictions barely move.
 
   Ridge on Uri: 27% compression — the least compressed fold. Uri has
-  the strongest (but still borderline) lagged association (r=+0.35,
-  p=0.051), and the model retains some predictive spread. But even
-  here, the predicted range (24.9) undershoots the actual range (34.1)
-  by 27%, and the fold R² is still negative (−0.212).
+  a borderline lagged association (r=+0.35, p=0.051), and the model
+  retains some predictive spread. But even here, the predicted range
+  (24.9) undershoots the actual range (34.1) by 27%, and the fold R²
+  is still negative (−0.212). Note that Heat Dome has a stronger
+  lagged correlation (r=+0.48, p=0.004) yet 97% compression — the
+  statistical signal does not translate into model learnability.
 
   Bottom line: Both models default to predicting near the global training
   mean (~40-44 AQI) rather than capturing event-specific AQI dynamics.
@@ -459,15 +461,18 @@ OVERALL ASSESSMENT
   fallback matches the naive baseline.
   This is the primary result: the predictive setup fails its own validation test.
 
-  The underlying signal is heterogeneous across events. Uri has the
-  strongest lagged association (r=+0.35, p=0.051 — borderline, not
-  significant at conventional thresholds) and the only non-zero
-  classification F1 (0.50). Elliott and Heat Dome are weak or null
-  (F1=0.00 for both). But even the Uri evidence is slim: the pooled
-  lag-1 correlation is null (r=0.136, p=0.188), and the Uri-specific
-  regression explains only R²=0.125. This heterogeneity makes pooled
-  cross-event prediction unreliable and makes the model's failure
-  unsurprising.
+  The underlying signal is heterogeneous across events. Lagged
+  fossil-to-AQI correlations vary widely: Heat Dome has the strongest
+  lag-1 (r=+0.48, p=0.004), Uri is borderline (r=+0.35, p=0.051),
+  and Elliott is null (r=+0.01). Yet the model's classification F1
+  inverts this: Uri F1=0.50, Heat Dome F1=0.00, Elliott F1=0.00 —
+  suggesting the statistical lag signal and model learnability do not
+  align. The pooled lag-1 correlation is null (r=0.136, p=0.188).
+  A separate statistical side-analysis (in stats_results.json, not the
+  model pipeline) shows a Uri-specific regression of R²=0.125
+  (p=0.051) — borderline and exploratory only. This heterogeneity
+  makes pooled cross-event prediction unreliable and makes the model's
+  failure unsurprising.
 
   Coefficient inspection is exploratory only. After cross-validation failure,
   Ridge coefficients describe what the failed model weighted — they do not
