@@ -354,7 +354,7 @@ def validate_holdout(train_pool, holdout, feature_names, best_params):
     print(f"\n  Holdout overall: R² = {hold_r2:.3f}   MAE = {hold_mae:.0f}   "
           f"RMSE = {hold_rmse:.0f}")
     print(f"\n  NOTE: Negative R² is expected — 2021 drought is out-of-distribution.")
-    print(f"  The model predicts what yields WOULD have been under normal conditions.")
+    print(f"  Overpredictions reflect a normal-year baseline, not a counterfactual estimate.")
     print(f"  Overprediction magnitude traces the drought's geographic gradient.")
 
     overall = {

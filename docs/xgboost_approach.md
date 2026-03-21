@@ -17,7 +17,7 @@
 
 **Why drop 2022?** The features `prev_year_yield_kg_ha`, `prev_year_gdd`, and `prev_year_precip_mm` for 2022 rows contain actual 2021 values. If 2022 were in training, the model would see 2021 holdout yields as input features, contaminating the holdout evaluation. This follows the purged cross-validation methodology (de Prado, 2018).
 
-**Residual temporal contamination:** 2023-2024 remain in training. Their `prev_year_*` features reference 2022 and 2023 respectively -- not 2021 directly. However, 2022 yields may reflect drought recovery effects, creating indirect information flow. We have not quantified the sensitivity of this choice (e.g., by comparing CV/holdout results with and without 2023-2024). A strict temporal holdout (train only on pre-2021 data) would reduce training to 240 rows and eliminate this concern entirely, at the cost of 24 fewer training rows.
+**Residual temporal contamination:** 2023-2024 remain in training. Their `prev_year_*` features reference 2022 and 2023 respectively -- not 2021 directly. However, 2022 yields may reflect drought recovery effects, creating indirect information flow. **We have not run a sensitivity comparison** (e.g., CV/holdout results with vs. without 2023-2024), so the practical magnitude of including these rows is assumed to be small rather than measured. A strict temporal holdout (train only on pre-2021 data) would reduce training to 240 rows and eliminate this concern entirely, at the cost of 24 fewer training rows.
 
 ## 2. Feature Selection (13 features)
 
@@ -96,12 +96,12 @@ Print as table + overall mean +/- std.
 - Retrain final model on all 264 training rows with best hyperparameters
 - Predict the 12 held-out 2021 rows
 - Print per-row: province, crop, actual yield, predicted yield, error
-- Highlight Saskatchewan Wheat specifically (the -44% collapse from the drought)
+- Highlight Saskatchewan Wheat specifically (24% below the 25-year baseline from the drought)
 - Overall holdout R^2, MAE, RMSE
 
 **Expected result: the holdout test will fail.** The model was trained on normal-range years (2001-2020, 2023-2024) and has never seen drought conditions this extreme. It will systematically overpredict 2021 yields, producing a negative holdout R^2.
 
-**What the failure tells us:** The pattern of overprediction (largest for SK, then AB, then MB) is consistent with the drought's known geographic gradient. This is an observation about the residuals, not a validated prediction. The model cannot predict extreme drought years -- it can only show what "normal" yields would have looked like, making the actual drought shortfall visible by contrast.
+**What the failure tells us:** The pattern of overprediction (largest for SK, then AB, then MB) is consistent with the drought's known geographic gradient. This is an observation about the residuals, not a validated counterfactual estimate. The model cannot predict extreme drought years. Its overpredictions reflect a normal-year baseline, and the gap between that baseline and actual 2021 yields makes the drought shortfall visible by contrast -- but this is residual analysis, not a causal claim about what yields "would have been."
 
 **What the model uses:** Feature importance is dominated by `prev_year_yield_kg_ha` and `crop_encoded`, not pure weather features. The model is a crop yield predictor with weather inputs, not a weather-only yield predictor.
 
@@ -136,7 +136,7 @@ This is a correlation/regression analysis to test the second thesis link: crop f
 
 **Temporal note:** The anomaly baselines (mean/std per crop-province group) are computed from the training pool, which includes 2023-2024 (post-holdout). This is temporal contamination in the normalization whose magnitude has not been quantified. We do not claim this is a clean out-of-sample test.
 
-**Expected result:** Weak negative correlation overall (R^2 ~ 0.05). Barley and canola drive the signal; wheat shows no useful correlation. The 2021 chain test fails because the yield model overpredicts 2021 (doesn't see the drought), so yield anomalies come out positive and predicted price changes are near zero -- missing the actual 20-47% price spikes entirely. This confirms the full weather->yield->price chain does not work for extreme events.
+**Expected result:** Moderate negative correlation overall (OLS R^2 ~ 0.14, Pearson r ~ -0.37). Barley and canola drive the signal; wheat shows no useful correlation. The 2021 chain test fails because the yield model overpredicts 2021 (doesn't see the drought), so yield anomalies come out positive and predicted price changes are near zero -- missing the actual 20-47% price spikes entirely. This confirms the full weather->yield->price chain does not work for extreme events.
 
 ## 8. Output JSON Structure
 
@@ -149,9 +149,9 @@ Key sections: `run_metadata`, `dataset`, `tuning`, `cv_results`, `holdout_2021`,
 | Risk | Mitigation |
 |------|------------|
 | 264 rows is small for XGBoost | Heavy regularization in search space; purged GroupKFold prevents lag leakage |
-| LabelEncoder ordinal encoding | `crop_encoded` is 2nd most important feature -- arbitrary numeric ordering materially shapes model and SHAP. Acknowledged limitation. |
+| LabelEncoder ordinal encoding | `crop_encoded` is 2nd most important feature in both gain and SHAP -- arbitrary integer coding materially shapes the explanation layer, so feature-importance rankings are qualified rather than cleanly agronomic. One-hot encoding would resolve this but adds dimensionality on a small dataset. |
 | SHAP version incompatibility | try/except wrapper; model results saved regardless |
-| Price link is weak (R^2 ~ 0.05) | Stated honestly; per-crop breakdown reveals wheat has no signal; framed as weak association, not validated link |
+| Price link is moderate (OLS R^2 ~ 0.14) | Stated honestly; per-crop breakdown reveals wheat has no signal; framed as partial association, not validated link |
 | 2021 holdout fails (negative R^2) | Stated honestly; framed as expected failure on out-of-distribution extreme event, not as validation success |
 | Not nested CV | Reported CV R^2 is an optimistic upper bound; acknowledged in docs |
 | 2023-2024 in training pool | Mild indirect temporal contamination via drought recovery effects; accepted to preserve dataset size |

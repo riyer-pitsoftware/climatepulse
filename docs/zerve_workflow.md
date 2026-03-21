@@ -253,6 +253,6 @@ python scripts/train_xgboost.py                # ~2 min
 - **Validation**: Purged GroupKFold by year (5 splits, embargo=1) to prevent temporal leakage through lagged features
 - **Holdout**: 2021 Western Canadian drought (year 2022 also excluded from training because its `prev_year_*` features embed 2021 target values)
 - **Purged CV R-squared**: 0.68
-- **Holdout R-squared**: -2.3 (expected — 2021 drought is out-of-distribution; the model predicts what yields would have been under normal conditions)
+- **Holdout R-squared**: -2.3 (expected — 2021 drought is out-of-distribution; overpredictions reflect a normal-year baseline, not a counterfactual estimate)
 - **Price correlation**: Pearson r = -0.37 (yield anomaly vs. price change)
 - **Random state**: 42 (all results deterministic given the same input data)
