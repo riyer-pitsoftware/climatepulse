@@ -1,410 +1,526 @@
-"""ClimatePulse — Interactive Dashboard
+"""ClimatePulse -- Canadian Agriculture + Climate Dashboard
 
-Interactive causal-chain explorer: Extreme Weather → Grid Fossil Shift → AQI
-Complements app_explore.py with geographic context, event filtering, and
-a prediction interface placeholder.
+Causal-chain explorer: Extreme Weather (ECCC) -> Crop Failure (StatsCan) -> Economic Impact (prices)
 """
 
 import json
 from pathlib import Path
 
 import altair as alt
-import folium
 import numpy as np
 import pandas as pd
 import streamlit as st
-from scipy import stats as sp_stats
-from streamlit_folium import st_folium
 
-st.set_page_config(page_title="ClimatePulse Dashboard", layout="wide", page_icon="🌡️")
+st.set_page_config(page_title="ClimatePulse", layout="wide")
 
-# ── Paths ──
+# -- Paths --
 DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "processed"
+CHARTS_DIR = DATA_DIR / "charts"
 
-# ── Colors (shared with app_explore.py) ──
-FOSSIL_COLOR = "#d62728"
-RENEWABLE_COLOR = "#2ca02c"
-TEMP_HIGH_COLOR = "#ff7f0e"
-TEMP_LOW_COLOR = "#1f77b4"
-AQI_COLOR = "#9467bd"
-BASELINE_COLOR = "#999999"
+# -- Colors --
+DROUGHT_COLOR = "#d62728"
+NORMAL_COLOR = "#2ca02c"
+HIGHLIGHT_COLOR = "#ff7f0e"
+MUTED_COLOR = "#999999"
+PROVINCE_COLORS = {"Alberta": "#1f77b4", "Saskatchewan": "#d62728", "Manitoba": "#2ca02c"}
+CROP_COLORS = {"Wheat": "#e6ab02", "Barley": "#7570b3", "Canola": "#1b9e77", "Oats": "#d95f02"}
 
-# ── Event metadata ──
-EVENT_META = {
-    "heat_dome_2021": {
-        "label": "PNW Heat Dome",
-        "period": "June–July 2021",
-        "region": "Pacific Northwest (BPA)",
-        "icon": "🔥",
-        "lat": 45.52,
-        "lon": -122.68,
-        "grid": "BPAT",
-        "color": "red",
-        "weather_col": "max_tmax",
-        "weather_label": "Peak High (°F)",
-        "weather_dir": "up",
-    },
-    "uri_2021": {
-        "label": "Winter Storm Uri",
-        "period": "February 2021",
-        "region": "Texas (ERCOT)",
-        "icon": "🧊",
-        "lat": 29.76,
-        "lon": -95.37,
-        "grid": "ERCO",
-        "color": "blue",
-        "weather_col": "min_tmin",
-        "weather_label": "Record Low (°F)",
-        "weather_dir": "down",
-    },
-    "elliott_2022": {
-        "label": "Winter Storm Elliott",
-        "period": "December 2022",
-        "region": "Eastern US (PJM)",
-        "icon": "❄️",
-        "lat": 40.44,
-        "lon": -79.99,
-        "grid": "PJM",
-        "color": "darkblue",
-        "weather_col": "min_tmin",
-        "weather_label": "Record Low (°F)",
-        "weather_dir": "down",
-    },
-}
+
+# ══════════════════════════════════════════════════════════════
+# Data Loading
+# ══════════════════════════════════════════════════════════════
+@st.cache_data
+def load_feature_matrix():
+    return pd.read_csv(DATA_DIR / "ca_feature_matrix.csv")
 
 
 @st.cache_data
-def load_data():
-    df = pd.read_csv(DATA_DIR / "unified_analysis.csv", parse_dates=["date"])
+def load_crop_yields():
+    return pd.read_csv(DATA_DIR / "ca_crop_yields.csv")
+
+
+@st.cache_data
+def load_weather():
+    return pd.read_csv(DATA_DIR / "ca_weather_features.csv")
+
+
+@st.cache_data
+def load_prices():
+    df = pd.read_csv(DATA_DIR / "ca_farm_prices_monthly.csv")
+    df["ref_date"] = pd.to_datetime(df["ref_date"])
     return df
 
 
 @st.cache_data
-def load_stats():
-    fp = DATA_DIR / "stats_results.json"
+def load_model_results():
+    fp = DATA_DIR / "ca_model_results.json"
     if fp.exists():
         return json.loads(fp.read_text())
     return {}
 
 
-df_all = load_data()
-stats_data = load_stats()
+fm = load_feature_matrix()
+yields = load_crop_yields()
+weather = load_weather()
+prices = load_prices()
+model = load_model_results()
 
-# ── Sidebar ──
-st.sidebar.markdown("# ClimatePulse")
-st.sidebar.markdown("Interactive causal-chain explorer")
-st.sidebar.divider()
-
-# Event selector
-event_options = {meta["label"]: key for key, meta in EVENT_META.items()}
-selected_label = st.sidebar.radio(
-    "Select Event",
-    list(event_options.keys()),
-    index=0,
-)
-selected_event = event_options[selected_label]
-meta = EVENT_META[selected_event]
-
-# Baseline toggle
-show_baseline = st.sidebar.checkbox(
-    "Show baseline days", value=True,
-    help="Include pre-event baseline rows if available",
-)
-
-st.sidebar.divider()
-st.sidebar.markdown("**Data sources**")
-st.sidebar.caption("NOAA GHCN-D · EIA Hourly Grid · EPA AQS")
-st.sidebar.caption("2021–2023 · 3 events · ~70–135 daily obs")
-
-# ── Filter data ──
-if show_baseline:
-    df = df_all[df_all["event"] == selected_event].copy()
-else:
-    df = df_all[(df_all["event"] == selected_event) & (df_all.get("is_baseline", 0) == 0)].copy()
-
-event_rows = df[df.get("is_baseline", pd.Series(dtype=int)).eq(0) | ~df.columns.isin(["is_baseline"])]
-if "is_baseline" in df.columns:
-    event_only = df[df["is_baseline"] == 0]
-    baseline_only = df[df["is_baseline"] == 1]
-else:
-    event_only = df
-    baseline_only = pd.DataFrame()
-
-# ── Header ──
-st.markdown(f"# {meta['icon']} {meta['label']} — {meta['period']}")
-st.markdown(f"*{meta['region']}*")
-st.divider()
 
 # ══════════════════════════════════════════════════════════════
-# Section 1 — Geographic Context (Map)
+# Section 1 -- Header
 # ══════════════════════════════════════════════════════════════
-st.markdown("## Geographic Context")
+st.markdown("# ClimatePulse: Canadian Agriculture and Climate")
+st.markdown(
+    "**Thesis:** Extreme Weather (ECCC) -> Crop Failure (StatsCan) -> Economic Impact (prices)"
+)
 
-map_col, info_col = st.columns([2, 1])
-
-with map_col:
-    m = folium.Map(location=[meta["lat"], meta["lon"]], zoom_start=5, tiles="CartoDB positron")
-
-    for key, ev in EVENT_META.items():
-        is_selected = key == selected_event
-        folium.CircleMarker(
-            location=[ev["lat"], ev["lon"]],
-            radius=14 if is_selected else 8,
-            color=ev["color"],
-            fill=True,
-            fill_color=ev["color"],
-            fill_opacity=0.8 if is_selected else 0.3,
-            popup=folium.Popup(
-                f"<b>{ev['label']}</b><br>{ev['period']}<br>{ev['region']}",
-                max_width=200,
-            ),
-            tooltip=ev["label"],
-        ).add_to(m)
-
-        if is_selected:
-            folium.Marker(
-                location=[ev["lat"], ev["lon"]],
-                icon=folium.DivIcon(
-                    html=f'<div style="font-size:24px;text-align:center">{ev["icon"]}</div>',
-                    icon_size=(30, 30),
-                    icon_anchor=(15, 15),
-                ),
-            ).add_to(m)
-
-    st_folium(m, height=350, use_container_width=True, returned_objects=[])
-
-with info_col:
-    st.markdown(f"### {meta['label']}")
-    st.markdown(f"**Grid region:** {meta['grid']}")
-    st.markdown(f"**Period:** {meta['period']}")
-
-    if meta["weather_dir"] == "up":
-        extreme_val = event_only[meta["weather_col"]].max()
-    else:
-        extreme_val = event_only[meta["weather_col"]].min()
-    st.metric(meta["weather_label"], f"{extreme_val:.0f}°F")
-
-    avg_fossil = event_only["fossil_pct_change"].mean()
-    st.metric("Avg Fossil Shift", f"{avg_fossil:+.1f}pp")
-
-    epa = event_only.dropna(subset=["pm25_aqi"])
-    if len(epa) > 0:
-        st.metric("Avg PM2.5 AQI", f"{epa['pm25_aqi'].mean():.0f}")
-    else:
-        st.metric("Avg PM2.5 AQI", "—")
-
-    st.metric("Days observed", f"{len(event_only)}" + (
-        f" + {len(baseline_only)} baseline" if len(baseline_only) > 0 else ""
-    ))
+h1, h2, h3, h4 = st.columns(4)
+h1.metric("Provinces", "3")
+h2.metric("Crops", "4")
+h3.metric("Years", "25 (2000-2024)")
+h4.metric("Observations", f"{len(fm):,}")
 
 st.divider()
 
+
 # ══════════════════════════════════════════════════════════════
-# Section 2 — Causal Chain: Before / During / After
+# Section 2 -- 2021 Drought Spotlight
 # ══════════════════════════════════════════════════════════════
-st.markdown("## Causal Chain — Weather → Grid → Air Quality")
+st.markdown("## 2021 Western Canada Drought -- The Focal Event")
 
-col1, col2, col3 = st.columns(3)
+holdout = model.get("holdout_2021", {})
+predictions = holdout.get("predictions", [])
+holdout_overall = holdout.get("overall", {})
 
-# Determine color assignment for baseline vs event
-has_baseline = "is_baseline" in df.columns and len(baseline_only) > 0
-if has_baseline:
-    df["period_label"] = df["is_baseline"].map({0: "Event", 1: "Baseline"})
+spot_col1, spot_col2 = st.columns([1, 1])
 
-with col1:
-    st.markdown("### 1. The Storm")
-    temp_cols = ["mean_tmin", "mean_tmax"]
-    chart_df = df.rename(columns={"mean_tmin": "Daily Low", "mean_tmax": "Daily High"})
+with spot_col1:
+    st.markdown("### Saskatchewan Wheat Collapse")
 
-    temp_chart = (
-        alt.Chart(chart_df)
-        .transform_fold(["Daily Low", "Daily High"], as_=["measure", "temp"])
-        .mark_line(strokeWidth=2)
-        .encode(
-            x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d")),
-            y=alt.Y("temp:Q", title="Temperature (°F)"),
-            color=alt.Color(
-                "measure:N",
-                scale=alt.Scale(
-                    domain=["Daily Low", "Daily High"],
-                    range=[TEMP_LOW_COLOR, TEMP_HIGH_COLOR],
+    # Pull SK wheat from holdout
+    sk_wheat = next(
+        (p for p in predictions if p["province"] == "Saskatchewan" and p["crop"] == "Wheat"),
+        None,
+    )
+    if sk_wheat:
+        s1, s2, s3 = st.columns(3)
+        s1.metric("Actual Yield", f"{sk_wheat['actual']:,.0f} kg/ha")
+        s2.metric("Model Predicted", f"{sk_wheat['predicted']:,.0f} kg/ha")
+        s3.metric("Overprediction", f"+{sk_wheat['error_pct']:.0f}%")
+
+    st.markdown(
+        "The model, trained on normal years (purged CV R^2 = 0.68), predicted "
+        "~3,041 kg/ha for Saskatchewan wheat. Actual: **1,890 kg/ha** -- a 24% drop "
+        "below the historical baseline (~2,480 kg/ha). The 2021 drought was "
+        "out-of-distribution: heat stress days doubled (22 vs ~9), max dry spell +40% "
+        "(21 vs ~15 days)."
+    )
+
+with spot_col2:
+    st.markdown("### Geographic Gradient of Overprediction")
+
+    if predictions:
+        pred_df = pd.DataFrame(predictions)
+        # Heatmap: province x crop showing error_pct
+        heatmap = (
+            alt.Chart(pred_df)
+            .mark_rect()
+            .encode(
+                x=alt.X("crop:N", title="Crop", sort=["Barley", "Canola", "Oats", "Wheat"]),
+                y=alt.Y(
+                    "province:N",
+                    title="Province",
+                    sort=["Saskatchewan", "Alberta", "Manitoba"],
                 ),
-                legend=alt.Legend(title=None, orient="bottom"),
-            ),
-            strokeDash=alt.condition(
-                alt.datum.is_baseline == 1,
-                alt.value([4, 4]),
-                alt.value([0]),
-            ) if has_baseline else alt.value([0]),
-        )
-        .properties(height=280)
-    )
-    st.altair_chart(temp_chart, use_container_width=True)
-
-with col2:
-    st.markdown("### 2. Grid Response")
-    grid_chart = (
-        alt.Chart(df)
-        .mark_bar()
-        .encode(
-            x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d")),
-            y=alt.Y("fossil_pct_change:Q", title="Fossil shift (pp)"),
-            color=alt.condition(
-                alt.datum.fossil_pct_change > 0,
-                alt.value(FOSSIL_COLOR),
-                alt.value(RENEWABLE_COLOR),
-            ),
-            opacity=alt.condition(
-                alt.datum.is_baseline == 1,
-                alt.value(0.4),
-                alt.value(0.9),
-            ) if has_baseline else alt.value(0.9),
-            tooltip=[
-                alt.Tooltip("date:T", title="Date"),
-                alt.Tooltip("fossil_pct_change:Q", title="Fossil shift (pp)", format="+.1f"),
-                alt.Tooltip("fossil_pct:Q", title="Fossil %", format=".1f"),
-                alt.Tooltip("baseline_fossil_pct:Q", title="Baseline %", format=".1f"),
-            ],
-        )
-        .properties(height=280)
-    )
-    zero_rule = (
-        alt.Chart(pd.DataFrame({"y": [0]}))
-        .mark_rule(strokeDash=[4, 4], color=BASELINE_COLOR)
-        .encode(y="y:Q")
-    )
-    st.altair_chart(grid_chart + zero_rule, use_container_width=True)
-    st.caption("Red = more fossil than baseline. Green = less.")
-
-with col3:
-    st.markdown("### 3. Air Quality")
-    epa_df = df.dropna(subset=["pm25_aqi"])
-    if len(epa_df) > 0:
-        aqi_chart = (
-            alt.Chart(epa_df)
-            .mark_area(opacity=0.3, color=AQI_COLOR)
-            .encode(
-                x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d")),
-                y=alt.Y("pm25_aqi:Q", title="PM2.5 AQI"),
-            )
-            .properties(height=280)
-        )
-        aqi_line = (
-            alt.Chart(epa_df)
-            .mark_line(strokeWidth=2, color=AQI_COLOR)
-            .encode(
-                x="date:T",
-                y="pm25_aqi:Q",
+                color=alt.Color(
+                    "error_pct:Q",
+                    title="Overprediction %",
+                    scale=alt.Scale(scheme="reds", domain=[15, 75]),
+                ),
                 tooltip=[
-                    alt.Tooltip("date:T", title="Date"),
-                    alt.Tooltip("pm25_aqi:Q", title="PM2.5 AQI", format=".0f"),
-                    alt.Tooltip("ozone_aqi:Q", title="Ozone AQI", format=".0f"),
+                    alt.Tooltip("province:N"),
+                    alt.Tooltip("crop:N"),
+                    alt.Tooltip("actual:Q", title="Actual (kg/ha)", format=",.0f"),
+                    alt.Tooltip("predicted:Q", title="Predicted (kg/ha)", format=",.0f"),
+                    alt.Tooltip("error_pct:Q", title="Overprediction %", format=".1f"),
                 ],
             )
+            .properties(height=220)
         )
-        st.altair_chart(aqi_chart + aqi_line, use_container_width=True)
+        text = (
+            alt.Chart(pred_df)
+            .mark_text(fontSize=12, fontWeight="bold")
+            .encode(
+                x=alt.X("crop:N", sort=["Barley", "Canola", "Oats", "Wheat"]),
+                y=alt.Y(
+                    "province:N", sort=["Saskatchewan", "Alberta", "Manitoba"]
+                ),
+                text=alt.Text("error_pct:Q", format=".0f"),
+                color=alt.condition(
+                    alt.datum.error_pct > 50,
+                    alt.value("white"),
+                    alt.value("black"),
+                ),
+            )
+        )
+        st.altair_chart(heatmap + text, use_container_width=True)
+        st.caption(
+            "Saskatchewan shows the worst overprediction (53-72%), consistent with "
+            "the epicentre of the 2021 heat dome. Manitoba fared best (17-36%)."
+        )
+
+st.divider()
+
+
+# ══════════════════════════════════════════════════════════════
+# Section 3 -- Causal Chain: Weather -> Yield
+# ══════════════════════════════════════════════════════════════
+st.markdown("## Causal Chain: Weather -> Yield")
+
+cc_left, cc_right = st.columns([1, 3])
+
+with cc_left:
+    provinces = sorted(fm["province"].unique())
+    crops = sorted(fm["crop"].unique())
+    sel_province = st.selectbox("Province", provinces, index=provinces.index("Saskatchewan"))
+    sel_crop = st.selectbox("Crop", crops, index=crops.index("Wheat"))
+    weather_overlay = st.selectbox(
+        "Weather overlay",
+        ["heat_stress_days", "precip_total_mm", "max_consecutive_dry_days", "frost_free_days"],
+        format_func=lambda x: {
+            "heat_stress_days": "Heat Stress Days",
+            "precip_total_mm": "Total Precipitation (mm)",
+            "max_consecutive_dry_days": "Max Dry Spell (days)",
+            "frost_free_days": "Frost-Free Days",
+        }.get(x, x),
+    )
+
+with cc_right:
+    subset = fm[(fm["province"] == sel_province) & (fm["crop"] == sel_crop)].copy()
+    subset = subset.sort_values("year")
+
+    # Yield timeseries
+    base = alt.Chart(subset).encode(
+        x=alt.X("year:O", title="Year"),
+    )
+
+    yield_line = base.mark_line(
+        strokeWidth=2.5, color=PROVINCE_COLORS.get(sel_province, "#333")
+    ).encode(
+        y=alt.Y("yield_kg_ha:Q", title="Yield (kg/ha)"),
+        tooltip=[
+            alt.Tooltip("year:O", title="Year"),
+            alt.Tooltip("yield_kg_ha:Q", title="Yield (kg/ha)", format=",.0f"),
+        ],
+    )
+
+    yield_points = base.mark_circle(size=50).encode(
+        y=alt.Y("yield_kg_ha:Q"),
+        color=alt.condition(
+            alt.datum.year == 2021,
+            alt.value(DROUGHT_COLOR),
+            alt.value(PROVINCE_COLORS.get(sel_province, "#333")),
+        ),
+        size=alt.condition(
+            alt.datum.year == 2021,
+            alt.value(120),
+            alt.value(50),
+        ),
+        tooltip=[
+            alt.Tooltip("year:O", title="Year"),
+            alt.Tooltip("yield_kg_ha:Q", title="Yield (kg/ha)", format=",.0f"),
+        ],
+    )
+
+    # Weather overlay on secondary axis
+    weather_label = {
+        "heat_stress_days": "Heat Stress Days",
+        "precip_total_mm": "Precip (mm)",
+        "max_consecutive_dry_days": "Max Dry Spell (days)",
+        "frost_free_days": "Frost-Free Days",
+    }.get(weather_overlay, weather_overlay)
+
+    weather_bars = base.mark_bar(opacity=0.25, color=HIGHLIGHT_COLOR).encode(
+        y=alt.Y(f"{weather_overlay}:Q", title=weather_label),
+        tooltip=[
+            alt.Tooltip("year:O", title="Year"),
+            alt.Tooltip(f"{weather_overlay}:Q", title=weather_label, format=".1f"),
+        ],
+    )
+
+    weather_highlight = base.mark_bar(opacity=0.6, color=DROUGHT_COLOR).encode(
+        y=alt.Y(f"{weather_overlay}:Q"),
+    ).transform_filter(alt.datum.year == 2021)
+
+    chart_yield = alt.layer(yield_line, yield_points).properties(
+        height=300, title=f"{sel_province} -- {sel_crop}: Yield (kg/ha)"
+    )
+    chart_weather = alt.layer(weather_bars, weather_highlight).properties(
+        height=180, title=f"{weather_label} (2021 highlighted in red)"
+    )
+
+    combined = alt.vconcat(chart_yield, chart_weather).resolve_scale(x="shared")
+    st.altair_chart(combined, use_container_width=True)
+
+st.divider()
+
+
+# ══════════════════════════════════════════════════════════════
+# Section 4 -- Model Performance
+# ══════════════════════════════════════════════════════════════
+st.markdown("## Model Performance")
+
+cv_results = model.get("cv_results", {})
+cv_overall = cv_results.get("overall", {})
+
+mp1, mp2 = st.columns([1, 1])
+
+with mp1:
+    st.markdown("### Cross-Validation (Normal Years)")
+    st.markdown(
+        f"Purged GroupKFold(5) by year with 1-year embargo. "
+        f"Trained on {model.get('dataset', {}).get('training_rows', 264)} rows."
+    )
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Mean R^2", f"{cv_overall.get('r2_mean', 0):.3f}")
+    m2.metric("Mean MAE", f"{cv_overall.get('mae_mean', 0):.0f} kg/ha")
+    m3.metric("Mean RMSE", f"{cv_overall.get('rmse_mean', 0):.0f} kg/ha")
+
+    # Fold-level results table
+    folds = cv_results.get("folds", [])
+    if folds:
+        fold_df = pd.DataFrame(folds)
+        fold_df["years_held_out"] = fold_df["years_held_out"].apply(
+            lambda x: ", ".join(str(y) for y in x)
+        )
+        fold_df = fold_df.rename(columns={
+            "fold": "Fold",
+            "years_held_out": "Held-Out Years",
+            "n_train": "N Train",
+            "r2": "R2",
+            "mae": "MAE",
+            "rmse": "RMSE",
+        })
+        st.dataframe(
+            fold_df[["Fold", "Held-Out Years", "N Train", "R2", "MAE", "RMSE"]],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+with mp2:
+    st.markdown("### Holdout 2021 (Drought Year)")
+    st.markdown(
+        "The model was never trained on 2021. Systematic overprediction confirms "
+        "2021 was out-of-distribution."
+    )
+
+    ho1, ho2, ho3 = st.columns(3)
+    ho1.metric("Holdout R^2", f"{holdout_overall.get('r2', 0):.2f}")
+    ho2.metric("Holdout MAE", f"{holdout_overall.get('mae', 0):.0f} kg/ha")
+    ho3.metric("Holdout RMSE", f"{holdout_overall.get('rmse', 0):.0f} kg/ha")
+
+    if predictions:
+        ho_df = pd.DataFrame(predictions)
+        ho_df = ho_df.rename(columns={
+            "province": "Province",
+            "crop": "Crop",
+            "actual": "Actual (kg/ha)",
+            "predicted": "Predicted (kg/ha)",
+            "error": "Error (kg/ha)",
+            "error_pct": "Error %",
+        })
+        st.dataframe(ho_df, use_container_width=True, hide_index=True)
+
+# SHAP charts
+st.markdown("### Feature Importance (SHAP)")
+shap_col1, shap_col2 = st.columns(2)
+
+shap_bar = CHARTS_DIR / "shap_summary_bar.png"
+shap_bee = CHARTS_DIR / "shap_summary_bee.png"
+
+with shap_col1:
+    if shap_bar.exists():
+        st.image(str(shap_bar), caption="SHAP Feature Importance (bar)", use_container_width=True)
     else:
-        st.info("No EPA monitoring data for this date range.")
+        st.info("shap_summary_bar.png not found.")
 
-st.divider()
-
-# ══════════════════════════════════════════════════════════════
-# Section 3 — Key Findings
-# ══════════════════════════════════════════════════════════════
-st.markdown("## Key Findings")
-
-f1, f2, f3 = st.columns(3)
-
-with f1:
-    st.markdown("#### Weather → Fossil Shift")
-    pooled = stats_data.get("pooled", {})
-    st.success(
-        f"**Pooled fossil shift: +{pooled.get('fossil_mean_shift', 4.0):.1f}pp** "
-        f"(p={pooled.get('p_value', 0.002)}, d={pooled.get('cohens_d', 0.39)})\n\n"
-        "All three events show increased fossil generation during extreme weather."
-    )
-
-with f2:
-    st.markdown("#### Fossil → AQI (Lagged)")
-    lagged = stats_data.get("lagged_correlation", {}).get("pooled", {})
-    lag1 = lagged.get("lag_1", {})
-    st.warning(
-        f"**1-day lag: r={lag1.get('pearson_r', 0.14):+.2f}** "
-        f"(p={lag1.get('p_value_bh', lag1.get('p_value_raw', 0.19))})\n\n"
-        "Same-day and lagged correlations are weak at the pooled level. "
-        "Uri shows the strongest case-study signal (r=+0.35, p=0.051)."
-    )
-
-with f3:
-    st.markdown("#### Limitations")
-    st.info(
-        "**Exploratory analysis** of 3 case studies (~70 event-days). "
-        "Spatial unit mismatch, wildfire confounding (Heat Dome), and small sample "
-        "limit causal inference. Associations generate hypotheses, not conclusions."
-    )
-
-st.divider()
-
-# ══════════════════════════════════════════════════════════════
-# Section 4 — Prediction Interface (Placeholder)
-# ══════════════════════════════════════════════════════════════
-st.markdown("## Prediction Explorer")
-st.markdown(
-    "Estimate next-day air quality impact based on thermal stress and grid conditions. "
-    "*(Model training in progress — using linear approximation from observed data.)*"
-)
-
-pred_col1, pred_col2 = st.columns([1, 1])
-
-with pred_col1:
-    thermal_stress = st.slider(
-        "Temperature deviation from 65°F",
-        min_value=0, max_value=60, value=25, step=1,
-        help="How far from comfortable 65°F (captures both heat and cold stress)",
-    )
-    grid_region = st.selectbox(
-        "Grid region",
-        ["ERCOT (Texas)", "PJM (Eastern US)", "BPA (Pacific NW)"],
-    )
-
-with pred_col2:
-    # Simple linear prediction based on observed stats
-    # From thermal stress analysis: moderate(~10°F)->+0pp, extreme(>24°F)->+10.7pp
-    if thermal_stress < 12:
-        predicted_fossil_shift = thermal_stress * 0.05
-        stress_label = "Moderate"
-        stress_color = "#4CAF50"
-    elif thermal_stress < 25:
-        predicted_fossil_shift = thermal_stress * 0.22
-        stress_label = "Elevated"
-        stress_color = "#FF9800"
+with shap_col2:
+    if shap_bee.exists():
+        st.image(str(shap_bee), caption="SHAP Beeswarm Plot", use_container_width=True)
     else:
-        predicted_fossil_shift = thermal_stress * 0.40
-        stress_label = "Extreme"
-        stress_color = "#D32F2F"
+        st.info("shap_summary_bee.png not found.")
 
-    # Lag-1 regression slope from Uri: ~0.5 AQI per 1pp fossil
-    predicted_aqi_delta = predicted_fossil_shift * 0.5
+# Additional SHAP charts
+shap_row2_col1, shap_row2_col2, shap_row2_col3 = st.columns(3)
 
-    st.markdown(f"**Thermal stress level:** :{stress_label.lower()}[{stress_label}]")
-    st.metric("Predicted fossil shift", f"+{predicted_fossil_shift:.1f}pp")
-    st.metric("Est. next-day PM2.5 AQI change", f"+{predicted_aqi_delta:.1f}")
-    st.caption(
-        "Based on observed thermal-stress thresholds and Uri lag-1 regression slope. "
-        "Not a validated forecast model."
+shap_2021 = CHARTS_DIR / "shap_2021_drought.png"
+shap_heat = CHARTS_DIR / "shap_dependence_heat_stress.png"
+shap_precip = CHARTS_DIR / "shap_dependence_precip.png"
+
+with shap_row2_col1:
+    if shap_2021.exists():
+        st.image(str(shap_2021), caption="SHAP -- 2021 Drought", use_container_width=True)
+
+with shap_row2_col2:
+    if shap_heat.exists():
+        st.image(str(shap_heat), caption="SHAP Dependence -- Heat Stress", use_container_width=True)
+
+with shap_row2_col3:
+    if shap_precip.exists():
+        st.image(str(shap_precip), caption="SHAP Dependence -- Precipitation", use_container_width=True)
+
+st.divider()
+
+
+# ══════════════════════════════════════════════════════════════
+# Section 5 -- Price Impact
+# ══════════════════════════════════════════════════════════════
+st.markdown("## Price Impact: Yield Anomaly -> Price Change")
+
+price_impact = model.get("price_impact", {})
+ols = price_impact.get("ols", {})
+pearson = price_impact.get("pearson", {})
+
+pi1, pi2 = st.columns([2, 1])
+
+with pi1:
+    # Build scatter from feature matrix rows that have price data
+    price_df = fm.dropna(subset=["price_change_pct", "yield_kg_ha"]).copy()
+
+    if len(price_df) > 0:
+        # Compute yield anomaly as % deviation from crop-province mean
+        mean_yields = price_df.groupby(["province", "crop"])["yield_kg_ha"].transform("mean")
+        price_df["yield_anomaly_pct"] = (
+            (price_df["yield_kg_ha"] - mean_yields) / mean_yields
+        ) * 100
+
+        scatter = (
+            alt.Chart(price_df)
+            .mark_circle(size=50, opacity=0.6)
+            .encode(
+                x=alt.X("yield_anomaly_pct:Q", title="Yield Anomaly (% from mean)"),
+                y=alt.Y("price_change_pct:Q", title="Price Change (%)"),
+                color=alt.Color(
+                    "crop:N",
+                    title="Crop",
+                    scale=alt.Scale(
+                        domain=list(CROP_COLORS.keys()),
+                        range=list(CROP_COLORS.values()),
+                    ),
+                ),
+                tooltip=[
+                    alt.Tooltip("year:O", title="Year"),
+                    alt.Tooltip("province:N"),
+                    alt.Tooltip("crop:N"),
+                    alt.Tooltip("yield_anomaly_pct:Q", title="Yield Anomaly %", format=".1f"),
+                    alt.Tooltip("price_change_pct:Q", title="Price Change %", format=".1f"),
+                ],
+            )
+            .properties(height=380)
+        )
+
+        # OLS regression line
+        x_range = pd.DataFrame({
+            "yield_anomaly_pct": np.linspace(
+                price_df["yield_anomaly_pct"].min(),
+                price_df["yield_anomaly_pct"].max(),
+                50,
+            )
+        })
+        slope = ols.get("slope", -0.079)
+        intercept = ols.get("intercept", 3.92)
+        x_range["price_change_pct"] = slope * x_range["yield_anomaly_pct"] + intercept
+
+        ols_line = (
+            alt.Chart(x_range)
+            .mark_line(strokeDash=[6, 3], color="#333", strokeWidth=2)
+            .encode(
+                x="yield_anomaly_pct:Q",
+                y="price_change_pct:Q",
+            )
+        )
+
+        st.altair_chart(scatter + ols_line, use_container_width=True)
+    else:
+        st.info("No price data available for scatter plot.")
+
+with pi2:
+    st.markdown("### Overall Correlation")
+    st.metric("Pearson r", f"{pearson.get('r', 0):.3f}")
+    st.metric("OLS R^2", f"{ols.get('r2', 0):.3f}")
+    st.metric("OLS slope", f"{ols.get('slope', 0):.3f}")
+    st.metric("p-value", f"< 0.001")
+
+    st.markdown("### Per-Crop Breakdown")
+    per_crop = price_impact.get("per_crop", {})
+    crop_rows = []
+    for crop_name, crop_data in per_crop.items():
+        crop_pearson = crop_data.get("pearson", {})
+        crop_rows.append({
+            "Crop": crop_name,
+            "n": crop_data.get("n", 0),
+            "r": crop_pearson.get("r", 0),
+            "p": crop_pearson.get("p", 1),
+        })
+    if crop_rows:
+        crop_corr_df = pd.DataFrame(crop_rows)
+        st.dataframe(crop_corr_df, use_container_width=True, hide_index=True)
+
+    st.markdown(
+        "Barley and canola drive the price signal. "
+        "Wheat shows no useful correlation (r = -0.07, p = 0.72)."
     )
 
 st.divider()
 
-# ══════════════════════════════════════════════════════════════
-# Section 5 — Raw Data
-# ══════════════════════════════════════════════════════════════
-with st.expander(f"Raw data — {meta['label']} ({len(df)} rows)"):
-    st.dataframe(df, use_container_width=True, hide_index=True)
 
-# ── Footer ──
+# ══════════════════════════════════════════════════════════════
+# Section 6 -- Data Explorer
+# ══════════════════════════════════════════════════════════════
+st.markdown("## Data Explorer")
+
+tab_fm, tab_yields, tab_weather, tab_prices = st.tabs([
+    "Feature Matrix", "Crop Yields", "Weather Features", "Farm Prices"
+])
+
+with tab_fm:
+    exp_provinces = st.multiselect(
+        "Filter by province", sorted(fm["province"].unique()), default=[], key="fm_prov"
+    )
+    exp_crops = st.multiselect(
+        "Filter by crop", sorted(fm["crop"].unique()), default=[], key="fm_crop"
+    )
+    filtered_fm = fm.copy()
+    if exp_provinces:
+        filtered_fm = filtered_fm[filtered_fm["province"].isin(exp_provinces)]
+    if exp_crops:
+        filtered_fm = filtered_fm[filtered_fm["crop"].isin(exp_crops)]
+    st.dataframe(filtered_fm, use_container_width=True, hide_index=True)
+    st.caption(f"{len(filtered_fm)} rows")
+
+with tab_yields:
+    st.dataframe(yields, use_container_width=True, hide_index=True)
+    st.caption(f"{len(yields)} rows")
+
+with tab_weather:
+    st.dataframe(weather, use_container_width=True, hide_index=True)
+    st.caption(f"{len(weather)} rows")
+
+with tab_prices:
+    price_commodity = st.text_input("Filter commodity (contains)", "", key="price_filter")
+    filtered_prices = prices.copy()
+    if price_commodity:
+        filtered_prices = filtered_prices[
+            filtered_prices["commodity"].str.contains(price_commodity, case=False, na=False)
+        ]
+    st.dataframe(filtered_prices, use_container_width=True, hide_index=True)
+    st.caption(f"{len(filtered_prices)} rows")
+
+
+# -- Footer --
 st.divider()
 st.caption(
-    "ClimatePulse — ZerveHack 2026 · Climate & Energy Track · "
-    "Data: NOAA GHCN-D, EIA Hourly Grid Monitor, EPA AQS"
+    "ClimatePulse -- ZerveHack 2026 -- Climate & Energy Track -- "
+    "Data: StatsCan, ECCC"
 )
