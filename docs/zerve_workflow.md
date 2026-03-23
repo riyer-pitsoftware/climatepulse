@@ -113,9 +113,11 @@ Execution order within the Zerve DAG:
 
 Steps 1a, 1b, and 1c execute concurrently in the Zerve DAG. Step 2 triggers only after all three complete. Step 3 trains the XGBoost model on the joined feature matrix. Step 4 deploys the interactive dashboard.
 
-## 4. App Builder
+## 4. App Builder (Planned)
 
-The Zerve App Builder hosts a Streamlit interactive dashboard with the following components:
+> **Status: Planned.** The following describes the planned App Builder dashboard, to be built using Zerve's agent and App Builder features. The design spec is finalized; implementation has not started.
+
+The Zerve App Builder will host a Streamlit interactive dashboard with the following components:
 
 **Province Map**: Choropleth visualization of the three Prairie provinces, color-coded by predicted yield impact or historical drought severity.
 
@@ -129,15 +131,17 @@ The Zerve App Builder hosts a Streamlit interactive dashboard with the following
 - Frost-free period (days)
 - Mean growing-season temperature (C)
 
-**Model Output Display**: As sliders change, the dashboard calls `/predict-yield` and `/predict-price-impact` in real time, showing:
+**Model Output Display**: As sliders change, the dashboard is designed to call `/predict-yield` and `/predict-price-impact` in real time, showing:
 - Predicted yield (kg/ha) per province and crop
 - Yield anomaly relative to historical baseline
 - Predicted price-change percentage
 - SHAP waterfall for the current input (which weather factors drive the prediction)
 
-**2021 Drought Case Study**: A preset button loads 2021 drought conditions to demonstrate the full thesis chain — extreme heat and low precipitation collapse yields, which triggers commodity price spikes.
+**2021 Drought Case Study**: A preset button loads 2021 drought conditions to demonstrate the full thesis chain — extreme heat and low precipitation collapse yields, which triggers commodity price spikes. Note: the 2021 holdout R² is -2.3 (expected out-of-distribution behavior). The model overpredicts yields under drought conditions, and this gap between predicted and actual yield IS the drought-impact measure — the demo illustrates this intentionally.
 
-## 5. API Endpoints
+## 5. API Endpoints (Planned)
+
+> **Status: Planned.** The following endpoints are the next phase of work, to be deployed via Zerve's API serving layer. The schemas below are the design spec.
 
 ### `/predict-yield`
 
@@ -200,15 +204,17 @@ Predicts commodity price change given a yield anomaly, using the OLS regression 
 
 Both endpoints are served from a single Zerve-hosted model artifact. The yield endpoint runs the XGBoost regressor; the price endpoint applies the OLS slope/intercept from the secondary price-impact model.
 
-## 6. Fleet Usage
+## 6. Fleet Usage (Planned/Partial)
+
+> **Status: Partial.** Cross-validation parallelism (`n_jobs=-1`) is implemented and working. Weather-station Fleet distribution and Province x Crop inference parallelism are planned for the Zerve deployment phase.
 
 Zerve Fleet enables parallel processing at two levels:
 
-**Weather Station Fetching**: The ECCC weather pipeline fetches data for 10 stations across 25 years (250 HTTP requests). Fleet distributes these fetches across workers, with rate-limiting (0.5s pause every 10 requests) to respect ECCC's API. Each station-year is independent, making this embarrassingly parallel.
+**Weather Station Fetching** *(planned)*: The ECCC weather pipeline fetches data for 10 stations across 25 years (250 HTTP requests). Fleet would distribute these fetches across workers, with rate-limiting (0.5s pause every 10 requests) to respect ECCC's API. Each station-year is independent, making this embarrassingly parallel.
 
-**Province x Crop Prediction**: At inference time, predictions span 3 provinces x 4 crops = 12 combinations. Fleet parallelizes these predictions for the dashboard's real-time updates, ensuring the interactive sliders remain responsive even when computing all 12 province-crop predictions simultaneously.
+**Province x Crop Prediction** *(planned)*: At inference time, predictions span 3 provinces x 4 crops = 12 combinations. Fleet would parallelize these predictions for the dashboard's real-time updates, ensuring the interactive sliders remain responsive even when computing all 12 province-crop predictions simultaneously.
 
-**Cross-Validation**: The XGBoost hyperparameter search runs 50 iterations of RandomizedSearchCV with purged GroupKFold (5 splits). Fleet's `n_jobs=-1` setting distributes these across available cores.
+**Cross-Validation** *(implemented)*: The XGBoost hyperparameter search runs 50 iterations of RandomizedSearchCV with purged GroupKFold (5 splits). The `n_jobs=-1` setting distributes these across available cores.
 
 ## 7. Reproducibility
 

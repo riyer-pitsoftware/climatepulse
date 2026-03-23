@@ -224,3 +224,6 @@ video/*.mp3
 research/*
 agents/*
 docs/feature_engineering_plan.md
+zerve_blocks/zerve_agent_feedback.md
+zerve_blocks/.block_manifest.json
+zerve_blocks/.prompts/
